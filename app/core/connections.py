@@ -1,14 +1,21 @@
 import asyncio
 import itertools
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta, timezone, tzinfo
 from typing import TYPE_CHECKING
+from zoneinfo import ZoneInfo
 
+import dateutil.parser
 import httpx2
+from bs4 import BeautifulSoup
 from redis.asyncio import ConnectionPool
 
-from app.constants import REQUEST_TIMEOUT
+from app.constants import PREFIX, REQUEST_TIMEOUT
 from app.core.config import settings
+from app.exceptions import ScrapingError
+from app.utils import parse_match_datetime
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
@@ -50,6 +57,111 @@ class VLRRequestPacer:
             if delay > 0:
                 await asyncio.sleep(delay)
             self._next_request_at = loop.time() + self._interval
+
+
+class VLRSourceTimezone:
+    """Calibrate rendered wall clocks once for the lifetime of an HTTP client."""
+
+    def __init__(self) -> None:
+        self.client: httpx2.AsyncClient | None = None
+        self.zone: tzinfo | None = None
+        self._lock = asyncio.Lock()
+
+    async def __call__(self, response: httpx2.Response) -> None:
+        if (
+            not settings.DETECT_SOURCE_TIMEZONE
+            or response.request.url.host not in {"vlr.gg", "www.vlr.gg"}
+            or response.status_code != 200
+            or "html" not in response.headers.get("content-type", "text/html").lower()
+        ):
+            return
+        if self.zone is not None:
+            response.extensions["vlr_timezone"] = self.zone
+            return
+        await response.aread()
+        soup = BeautifulSoup(response.content, "lxml")
+        timing = soup.select(".match-header-date .moment-tz-convert")
+        visible = " ".join(node.get_text(" ", strip=True) for node in timing)
+        timestamp = next((node.get("data-utc-ts") for node in timing if node.get("data-utc-ts")), None)
+        if self.zone is None and timestamp and "tbd" not in visible.casefold():
+            clock = re.search(r"\d{1,2}:\d{2}\s*(?:AM|PM)\s+([A-Z]{2,5}|[+-]\d{2}(?::?\d{2})?)\b", visible)
+            if clock and (instant := parse_match_datetime("", str(timestamp))) is not None:
+                rendered = dateutil.parser.parse(visible, default=instant.replace(tzinfo=None), ignoretz=True)
+                offset = rendered - instant.replace(tzinfo=None)
+                if offset > timedelta(days=180):
+                    rendered = rendered.replace(year=rendered.year - 1)
+                elif offset < -timedelta(days=180):
+                    rendered = rendered.replace(year=rendered.year + 1)
+                offset = rendered - instant.replace(tzinfo=None)
+                suffix = clock[1]
+                zones = {
+                    "EST": ("America/New_York",),
+                    "EDT": ("America/New_York",),
+                    "CST": ("America/Chicago", "Asia/Shanghai"),
+                    "CDT": ("America/Chicago",),
+                    "MST": ("America/Denver", "America/Phoenix"),
+                    "MDT": ("America/Denver",),
+                    "PST": ("America/Los_Angeles", "Asia/Manila"),
+                    "PDT": ("America/Los_Angeles",),
+                    "GMT": ("Europe/London",),
+                    "BST": ("Europe/London", "Asia/Dhaka"),
+                    "CET": ("Europe/Paris",),
+                    "CEST": ("Europe/Paris",),
+                    "EET": ("Europe/Helsinki",),
+                    "EEST": ("Europe/Helsinki",),
+                    "IST": ("Asia/Kolkata", "Asia/Jerusalem", "Europe/Dublin"),
+                    "JST": ("Asia/Tokyo",),
+                    "KST": ("Asia/Seoul",),
+                    "SGT": ("Asia/Singapore",),
+                    "HKT": ("Asia/Hong_Kong",),
+                    "AEST": ("Australia/Sydney", "Australia/Brisbane"),
+                    "AEDT": ("Australia/Sydney",),
+                    "NZST": ("Pacific/Auckland",),
+                    "NZDT": ("Pacific/Auckland",),
+                    "UTC": ("UTC",),
+                }
+                candidates = [ZoneInfo(settings.TIMEZONE), *(ZoneInfo(name) for name in zones.get(suffix, ()))]
+                matching = {
+                    zone.key: zone
+                    for zone in candidates
+                    if instant.astimezone(zone).utcoffset() == offset and instant.astimezone(zone).tzname() == suffix
+                }
+                if settings.TIMEZONE in matching:
+                    self.zone = matching[settings.TIMEZONE]
+                elif len(matching) == 1:
+                    self.zone = next(iter(matching.values()))
+                if self.zone is None and (numeric := re.fullmatch(r"([+-])(\d{2})(?::?(\d{2}))?", suffix)):
+                    explicit = timedelta(hours=int(numeric[2]), minutes=int(numeric[3] or 0))
+                    if numeric[1] == "-":
+                        explicit = -explicit
+                    if offset == explicit and abs(offset) <= timedelta(hours=14):
+                        self.zone = timezone(offset, suffix)
+        if timing:
+            if self.zone is not None:
+                response.extensions["vlr_timezone"] = self.zone
+            return
+        cards = soup.select("a.match-item, a.m-item")
+        anchor = next(
+            (
+                card.get("href")
+                for card in cards
+                if card.select_one("[data-utc-ts]") is None
+                and (date := card.select_one(".m-item-date, .match-item-time")) is not None
+                and "tbd" not in date.get_text().casefold()
+                and re.search(r"\d{1,2}:\d{2}", date.get_text())
+            ),
+            None,
+        )
+        if anchor and self.zone is None:
+            async with self._lock:
+                if self.zone is None:
+                    if self.client is None:
+                        raise ScrapingError("Unable to determine VLR's rendered timezone", url=str(response.url))
+                    detail = await self.client.get(f"{PREFIX}/{str(anchor).lstrip('/')}")
+                    if detail.status_code != 200 or self.zone is None:
+                        raise ScrapingError("Unable to determine VLR's rendered timezone", url=str(response.url))
+        if self.zone is not None:
+            response.extensions["vlr_timezone"] = self.zone
 
 
 class RotatingAddressTransport(httpx2.AsyncBaseTransport):
@@ -96,10 +208,15 @@ async def get_http_client() -> AsyncIterator[httpx2.AsyncClient]:
         yield http_client
     else:
         pace_requests = VLRRequestPacer(settings.VLR_REQUEST_INTERVAL_SECONDS)
+        source_timezone = VLRSourceTimezone()
         async with httpx2.AsyncClient(
             transport=build_transport(),
             timeout=REQUEST_TIMEOUT,
             headers={},
-            event_hooks={"request": [pace_requests, rotate_user_agent]},
+            event_hooks={"request": [pace_requests, rotate_user_agent], "response": [source_timezone]},
         ) as client:
-            yield client
+            source_timezone.client = client
+            try:
+                yield client
+            finally:
+                source_timezone.client = None

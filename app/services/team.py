@@ -1,5 +1,6 @@
 import asyncio
 import http
+from datetime import tzinfo
 
 from bs4 import BeautifulSoup, Tag
 
@@ -41,7 +42,11 @@ async def get_team_data(id: str, completed_pages: int = 1, include_completed: bo
             if page.status_code != http.HTTPStatus.OK:
                 raise ScrapingError(url=str(page.url), upstream_status=page.status_code)
         response, upcoming_matches_response = responses[:2]
-        completed_match_list = parse_completed_matches(responses[2].content) if include_completed else []
+        completed_match_list = (
+            parse_completed_matches(responses[2].content, responses[2].extensions.get("vlr_timezone"))
+            if include_completed
+            else []
+        )
         if completed_match_list and completed_pages != 1:
             seen: set[str] = {m["id"] for m in completed_match_list}
             # Clamp bounded mode; full-history mode cap is enforced inside the helper.
@@ -94,7 +99,7 @@ async def get_team_data(id: str, completed_pages: int = 1, include_completed: bo
 
     roster = [parse_player(player) for player in team_data.find_all("div", class_="team-roster-item")]
     upcoming_match_list = [
-        parse_match(match, constants.MatchStatus.UPCOMING)
+        parse_match(match, constants.MatchStatus.UPCOMING, upcoming_matches_response.extensions.get("vlr_timezone"))
         for match in upcoming_matches.find_all("a", class_="wf-card fc-flex m-item")
     ]
     result = schemas.Team.model_validate(
@@ -121,10 +126,13 @@ def completed_matches_url(id: str, page: int) -> str:
     return f"{constants.TEAM_COMPLETED_MATCHES_URL.format(id)}&page={page}"
 
 
-def parse_completed_matches(content: bytes) -> list[dict]:
+def parse_completed_matches(content: bytes, source_timezone: tzinfo | None = None) -> list[dict]:
     """Parse all completed-match cards from a single page of HTML."""
     soup = BeautifulSoup(content, "lxml")
-    return [parse_match(match) for match in soup.find_all("a", class_="wf-card fc-flex m-item")]
+    return [
+        parse_match(match, source_timezone=source_timezone)
+        for match in soup.find_all("a", class_="wf-card fc-flex m-item")
+    ]
 
 
 async def get_team_matches_page(id: str, page: int = 1) -> list[schemas.CompletedMatch]:
@@ -132,7 +140,10 @@ async def get_team_matches_page(id: str, page: int = 1) -> list[schemas.Complete
         response = await client.get(completed_matches_url(id, page))
         if response.status_code != http.HTTPStatus.OK:
             raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-    return [schemas.CompletedMatch.model_validate(match) for match in parse_completed_matches(response.content)]
+    return [
+        schemas.CompletedMatch.model_validate(match)
+        for match in parse_completed_matches(response.content, response.extensions.get("vlr_timezone"))
+    ]
 
 
 async def fetch_additional_completed_matches(
@@ -165,7 +176,7 @@ async def fetch_additional_completed_matches(
             for response in responses:
                 if response.status_code != http.HTTPStatus.OK:
                     raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-                page_matches = parse_completed_matches(response.content)
+                page_matches = parse_completed_matches(response.content, response.extensions.get("vlr_timezone"))
                 if not page_matches:
                     stop = True
                     break
@@ -189,7 +200,7 @@ async def fetch_additional_completed_matches(
         for response in responses:
             if response.status_code != http.HTTPStatus.OK:
                 raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-            page_matches = parse_completed_matches(response.content)
+            page_matches = parse_completed_matches(response.content, response.extensions.get("vlr_timezone"))
             if not page_matches:
                 stop = True
                 break
@@ -227,7 +238,11 @@ def parse_player(player_data: Tag) -> dict:
     return response
 
 
-def parse_match(match_data: Tag, status: constants.MatchStatus = constants.MatchStatus.COMPLETED) -> dict:
+def parse_match(
+    match_data: Tag,
+    status: constants.MatchStatus = constants.MatchStatus.COMPLETED,
+    source_timezone: tzinfo | None = None,
+) -> dict:
     """
     Function to parse a match's data from VLR
     :param match_data: The HTML data
@@ -276,5 +291,6 @@ def parse_match(match_data: Tag, status: constants.MatchStatus = constants.Match
     response["date"] = utils.parse_match_datetime(
         date_element.get_text(" ", strip=True) if date_element is not None else "",
         str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+        source_timezone,
     )
     return response

@@ -78,7 +78,8 @@ Environment variables (see `app/core/config.py`):
 - `APNS_CREDENTIALS_FILE`: Path to the APNs credential JSON file
 - `DATABASE_URL`: PostgreSQL connection URL, required only with `ENABLE_DATABASE=true`, using the `postgresql+asyncpg://` scheme
 - `INTERNAL_API_KEY`: Optional key exposing internal cache endpoints when ID mapping is enabled
-- `TIMEZONE`: Source timezone for rendered dates without an explicit offset or machine timestamp (default `America/New_York`). Machine timestamps are interpreted independently of the host's location.
+- `DETECT_SOURCE_TIMEZONE`: Detect VLR's rendered source timezone once per HTTP client (default `true`). The first rendered-only match list may fetch one representative detail page; subsequent endpoints reuse the observed zone. Requests fail if the source zone cannot be established.
+- `TIMEZONE`: Explicit source timezone for rendered dates when `DETECT_SOURCE_TIMEZONE=false` (default `America/New_York`). Set it only after checking VLR's actual rendered zone for the service's outbound location. Machine timestamps and explicit offsets are interpreted independently of this setting.
 - `VLR_REQUEST_INTERVAL_SECONDS`: Minimum spacing between VLR request starts in the shared client (default `1`, minimum `0`). Concurrent API calls share this pacing within one worker process. This courtesy interval is not a verified VLR quota.
 - `GOOGLE_APPLICATION_CREDENTIALS`: Path to Firebase credentials (for notifications)
 

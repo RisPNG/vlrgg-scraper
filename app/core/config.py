@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     VLR_REQUEST_INTERVAL_SECONDS: float = Field(default=1.0, ge=0)
 
     TIMEZONE: str = "America/New_York"
+    DETECT_SOURCE_TIMEZONE: bool = True
 
     # Optional standalone prediction service; predict falls back to Elo when unset or unreachable.
     PREDICTION_SERVICE_URL: str | None = None

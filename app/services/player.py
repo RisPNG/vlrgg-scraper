@@ -1,5 +1,6 @@
 import asyncio
 import http
+from datetime import tzinfo
 
 from bs4 import BeautifulSoup, Tag
 from bs4.element import ResultSet
@@ -170,7 +171,7 @@ async def get_player_matches(id: str, pages: int = 1) -> list[schemas.PlayerMatc
             raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
 
         # Page 1 has been fetched above; grab any additional pages while the client is open.
-        matches = parse_player_matches(response.content)
+        matches = parse_player_matches(response.content, response.extensions.get("vlr_timezone"))
         if matches and pages != 1:
             seen: set[str] = {m["id"] for m in matches}
             # Clamp bounded mode; full-history mode cap is enforced inside the helper.
@@ -185,10 +186,10 @@ def player_matches_url(id: str, page: int) -> str:
     return f"{constants.PLAYER_MATCHES_URL.format(id)}/?page={page}"
 
 
-def parse_player_matches(content: bytes) -> list[dict]:
+def parse_player_matches(content: bytes, source_timezone: tzinfo | None = None) -> list[dict]:
     """Parse all match-history cards from a single page of HTML."""
     soup = BeautifulSoup(content, "lxml")
-    return [parse_player_match(match) for match in soup.find_all("a", class_="wf-card fc-flex m-item")]
+    return [parse_player_match(match, source_timezone) for match in soup.find_all("a", class_="wf-card fc-flex m-item")]
 
 
 async def get_player_matches_page(id: str, page: int = 1) -> list[schemas.PlayerMatch]:
@@ -196,7 +197,10 @@ async def get_player_matches_page(id: str, page: int = 1) -> list[schemas.Player
         response = await client.get(player_matches_url(id, page))
         if response.status_code != http.HTTPStatus.OK:
             raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-    return [schemas.PlayerMatch.model_validate(match) for match in parse_player_matches(response.content)]
+    return [
+        schemas.PlayerMatch.model_validate(match)
+        for match in parse_player_matches(response.content, response.extensions.get("vlr_timezone"))
+    ]
 
 
 async def fetch_additional_player_matches(client, id: str, pages: int, seen: set[str] | None = None) -> list[dict]:
@@ -227,7 +231,7 @@ async def fetch_additional_player_matches(client, id: str, pages: int, seen: set
             for response in responses:
                 if response.status_code != http.HTTPStatus.OK:
                     raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-                page_matches = parse_player_matches(response.content)
+                page_matches = parse_player_matches(response.content, response.extensions.get("vlr_timezone"))
                 if not page_matches:
                     stop = True
                     break
@@ -251,7 +255,7 @@ async def fetch_additional_player_matches(client, id: str, pages: int, seen: set
         for response in responses:
             if response.status_code != http.HTTPStatus.OK:
                 raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-            page_matches = parse_player_matches(response.content)
+            page_matches = parse_player_matches(response.content, response.extensions.get("vlr_timezone"))
             if not page_matches:
                 stop = True
                 break
@@ -268,7 +272,7 @@ async def fetch_additional_player_matches(client, id: str, pages: int, seen: set
     return matches
 
 
-def parse_player_match(match_data: Tag) -> dict:
+def parse_player_match(match_data: Tag, source_timezone: tzinfo | None = None) -> dict:
     """
     Function to parse a single match-history card from a player's matches page on VLR.
 
@@ -310,5 +314,6 @@ def parse_player_match(match_data: Tag) -> dict:
     response["date"] = utils.parse_match_datetime(
         date_element.get_text(" ", strip=True) if date_element is not None else "",
         str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+        source_timezone,
     )
     return response

@@ -1,6 +1,6 @@
 import re
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from urllib.parse import urljoin, urlparse, urlsplit
 from zoneinfo import ZoneInfo
 
@@ -9,6 +9,7 @@ import dateutil.parser
 from app import constants
 from app.constants import PREFIX
 from app.core.config import settings
+from app.exceptions import ScrapingError
 
 _TZ_LOCAL = ZoneInfo(settings.TIMEZONE)
 _TZ_UTC = ZoneInfo("UTC")
@@ -87,17 +88,20 @@ def get_image_url(img: str | list[str]) -> str:
     return resolve_http_url(img) or ""
 
 
-def fix_datetime_tz(value: datetime) -> datetime:
+def fix_datetime_tz(value: datetime, source_timezone: tzinfo | None = None) -> datetime:
     if value.tzinfo is None:
-        value = value.replace(tzinfo=_TZ_LOCAL)
+        value = value.replace(tzinfo=source_timezone or _TZ_LOCAL)
     return value.astimezone(_TZ_UTC)
 
 
-def parse_match_datetime(value: str, timestamp: str | None = None) -> datetime | None:
+def parse_match_datetime(
+    value: str, timestamp: str | None = None, source_timezone: tzinfo | None = None
+) -> datetime | None:
     """Read VLR's stored match time or a rendered date and clock as UTC.
 
     :param value: Visible date and time text.
     :param timestamp: VLR's data-utc-ts value, as Unix seconds or a New York wall clock.
+    :param source_timezone: Observed timezone for rendered values without a machine timestamp.
     :return: An aware UTC start time, or None when the start time is unknown.
     """
     if constants.TBD in value.casefold():
@@ -112,7 +116,10 @@ def parse_match_datetime(value: str, timestamp: str | None = None) -> datetime |
         return start.astimezone(UTC)
     if not re.search(r"\b\d{1,2}:\d{2}\b", value):
         return None
-    return fix_datetime_tz(dateutil.parser.parse(value))
+    parsed = dateutil.parser.parse(value)
+    if parsed.tzinfo is None and source_timezone is None and settings.DETECT_SOURCE_TIMEZONE:
+        raise ScrapingError("Unable to determine VLR's rendered timezone")
+    return fix_datetime_tz(parsed, source_timezone)
 
 
 def clean_string(value: str) -> str:

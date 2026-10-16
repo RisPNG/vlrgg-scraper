@@ -24,6 +24,7 @@ def stateless_app(request, monkeypatch):
         for name in Settings.model_fields:
             configuration.setattr(settings, name, getattr(defaults, name))
         configuration.setattr(settings, "API_KEYS", getattr(request, "param", {}))
+        configuration.setattr(settings, "DETECT_SOURCE_TIMEZONE", False)
 
         import app.api.v1.api as api_module
         import app.api.v2.api as api_v2_module

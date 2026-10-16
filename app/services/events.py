@@ -3,6 +3,7 @@ import http
 import itertools
 import logging
 import re
+from datetime import tzinfo
 from typing import NotRequired, TypedDict, cast
 
 import dateutil.parser
@@ -362,7 +363,7 @@ async def parse_match_data(id: str) -> list:
         match
         for date in soup.find_all("div", class_="wf-label mod-large")
         if (day_matches := date.find_next_sibling("div", class_="wf-card")) is not None
-        for match in match_parser(day_matches, clean_string(date.get_text()))
+        for match in match_parser(day_matches, clean_string(date.get_text()), response.extensions.get("vlr_timezone"))
     ]
 
 
@@ -462,7 +463,7 @@ def prizes_parser(prizes_table: Tag) -> list[dict[str, str | dict[str, str]]]:
     return prizes
 
 
-def match_parser(day_matches: Tag, date: str) -> list[dict]:
+def match_parser(day_matches: Tag, date: str, source_timezone: tzinfo | None = None) -> list[dict]:
     """
     Parse match data
     :param day_matches: The HTML
@@ -478,6 +479,7 @@ def match_parser(day_matches: Tag, date: str) -> list[dict]:
         match_timing = parse_match_datetime(
             f"{date} {time}",
             str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+            source_timezone,
         )
         match = {
             "id": get_href(match_data["href"]).split("/")[1],

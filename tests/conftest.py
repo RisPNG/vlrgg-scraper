@@ -21,6 +21,13 @@ OPTIONAL_TEST_DEPENDENCIES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def fixture_source_timezone(request, monkeypatch):
+    """Offline HTML fixtures have a fixed source zone unless a test enables live calibration."""
+    if not any(marker in request.keywords for marker in LIVE_MARKERS):
+        monkeypatch.setattr("app.core.config.settings.DETECT_SOURCE_TIMEZONE", False)
+
+
 def pytest_ignore_collect(collection_path):
     return any(find_spec(dependency) is None for dependency in OPTIONAL_TEST_DEPENDENCIES.get(collection_path.name, ()))
 
@@ -80,6 +87,7 @@ def http_response():
         response.status_code = status
         response.content = content
         response.url = url
+        response.extensions = {}
         return response
 
     return build
