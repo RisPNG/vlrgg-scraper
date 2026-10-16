@@ -27,4 +27,4 @@ jobs:
           context: .
           push: false
           platforms: linux/amd64
-          build-args: GIT_SHA=${{ github.sha }}
+          build-args: GIT_SHA=${{ inputs.ref || github.sha }}
