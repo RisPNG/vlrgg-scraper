@@ -56,6 +56,7 @@ async def test_team_response_includes_identity_socials_history_and_cache(http_ge
     assert result.tag == "PRX"
     assert (result.completed[0].opponent, result.completed[0].opponent_tag) == ("EDward Gaming", "EDG")
     assert all(match.opponent_tag for match in result.completed)
+    assert all(match.status == "completed" and match.best_of is None for match in result.completed)
     assert [(match.opponent, match.opponent_tag) for match in result.upcoming] == [("TBD", None)]
     assert cached_result == result
     get.assert_not_called()
@@ -88,3 +89,17 @@ async def test_team_unannounced_match_has_no_start_time(http_get):
 
     assert len(result.upcoming) == 1
     assert result.upcoming[0].date is None
+
+
+@pytest.mark.asyncio
+async def test_team_schedule_can_skip_completed_history(http_get):
+    with patch("httpx2.AsyncClient.get", side_effect=http_get(_team_pages())) as get:
+        result = await team.get_team_data(TEAM_ID, include_completed=False)
+
+    assert result.name == "Paper Rex"
+    assert result.completed == []
+    assert result.upcoming[0].status == "upcoming"
+    assert {call.args[0] for call in get.call_args_list} == {
+        constants.TEAM_URL.format(TEAM_ID),
+        constants.TEAM_UPCOMING_MATCHES_URL.format(TEAM_ID),
+    }

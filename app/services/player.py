@@ -14,26 +14,31 @@ from app.utils import clean_number_string, expand_url, get_image_url, is_twitter
 PLAYER_MATCHES_PAGE_BATCH_SIZE = 5
 
 
-async def get_player_data(id: str, match_pages: int = 1) -> schemas.Player:
+async def get_player_data(id: str, match_pages: int = 1, include_matches: bool = True) -> schemas.Player:
     """
     Function get a player's data from VLR and return a parsed version
     :param id: The player's ID
     :param match_pages: How many pages of match history to fold into the response (VLR serves
         50 per page). Defaults to ``1`` (the first 50 recent matches). A value ``<= 0`` fetches
         the player's FULL match history. See :func:`get_player_matches`.
+    :param include_matches: Whether to fetch match history alongside the profile.
     :return: The parsed data
     """
 
     # Short-TTL cache (no cron for by-id pages): collapses duplicate live fetches.
-    cache_key = f"player:{id}:{match_pages}"
+    cache_key = f"player:{id}:{match_pages}:{include_matches}"
     if cached := await cache.get(cache_key):
         return schemas.Player.model_validate_json(cached)
 
     async with get_http_client() as client:
-        response, matches = await asyncio.gather(
-            client.get(constants.PLAYER_URL.format(id)),
-            get_player_matches(id, pages=match_pages),
-        )
+        if include_matches:
+            response, matches = await asyncio.gather(
+                client.get(constants.PLAYER_URL.format(id)),
+                get_player_matches(id, pages=match_pages),
+            )
+        else:
+            response = await client.get(constants.PLAYER_URL.format(id))
+            matches = []
         if response.status_code != http.HTTPStatus.OK:
             raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
 
@@ -63,12 +68,15 @@ async def get_player_data(id: str, match_pages: int = 1) -> schemas.Player:
     for header in player_summary_container_1.find_all("h2"):
         match header.get_text().strip().lower():
             case "current teams":
-                current_team = header.find_next(name="div").find("a")
-                player_data["current_team"] = {
-                    "id": current_team["href"].split("/")[-2],
-                    "name": current_team.find_all("div")[1].find("div").get_text().strip(),
-                    "img": get_image_url(current_team.find("img")["src"]),
-                }
+                player_data["current_teams"] = [
+                    {
+                        "id": current_team["href"].split("/")[-2],
+                        "name": current_team.find_all("div")[1].find("div").get_text().strip(),
+                        "img": get_image_url(current_team.find("img")["src"]),
+                    }
+                    for current_team in header.find_next(name="div").find_all("a")
+                ]
+                player_data["current_team"] = next(iter(player_data["current_teams"]), None)
             case "past teams":
                 player_data["past_teams"] = [
                     {
@@ -183,6 +191,14 @@ def parse_player_matches(content: bytes) -> list[dict]:
     return [parse_player_match(match) for match in soup.find_all("a", class_="wf-card fc-flex m-item")]
 
 
+async def get_player_matches_page(id: str, page: int = 1) -> list[schemas.PlayerMatch]:
+    async with get_http_client() as client:
+        response = await client.get(player_matches_url(id, page))
+        if response.status_code != http.HTTPStatus.OK:
+            raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
+    return [schemas.PlayerMatch.model_validate(match) for match in parse_player_matches(response.content)]
+
+
 async def fetch_additional_player_matches(client, id: str, pages: int, seen: set[str] | None = None) -> list[dict]:
     """
     Fetch match-history pages beyond page 1, preserving order (page 2, then 3, ...).
@@ -270,6 +286,7 @@ def parse_player_match(match_data: Tag) -> dict:
     teams = match_data.find_all("div", class_="m-item-team")
     response = {
         "id": utils.get_href(match_data["href"]).split("/")[1],
+        "status": constants.MatchStatus.COMPLETED,
         "event": event,
         "stage": "".join(stage),
         "team": utils.clean_string(teams[0].find("span", class_="m-item-team-name").get_text()),

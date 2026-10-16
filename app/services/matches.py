@@ -57,6 +57,7 @@ async def match_by_id(id: str, redis_client: Redis | None) -> schemas.MatchWithD
         for team, tag in zip(teams, rounds.find_all("div", class_="team")):
             team["tag"] = clean_string(tag.get_text()) or None
     return schemas.MatchWithDetails(
+        id=id,
         teams=teams,
         bans=bans,
         veto=parse_veto(bans),
@@ -65,6 +66,7 @@ async def match_by_id(id: str, redis_client: Redis | None) -> schemas.MatchWithD
         data=map_ret[0],
         map_count=map_ret[1],
         total_maps=get_total_maps(soup),
+        best_of=get_best_of(soup),
         previous_encounters=h2h_matches,
     )
 
@@ -464,19 +466,25 @@ def get_previous_encounters_data(data: Tag) -> list[dict]:
     return response
 
 
-async def match_list(redis_client: Redis) -> list[schemas.Match]:
+async def match_list(
+    redis_client: Redis, completed_pages: int = 1, include_completed: bool = True
+) -> list[schemas.Match]:
     """
     Function to parse a list of matches from the VLR.gg homepage
 
     :param redis_client: A redis instance
+    :param completed_pages: Number of completed history pages, or <= 0 for all.
+    :param include_completed: Whether to fetch completed history alongside upcoming matches.
     :return: The parsed matches
     """
+    if not include_completed:
+        return await get_upcoming_matches(redis_client)
     return list(
         chain(
             *(
                 await gather(
                     get_upcoming_matches(redis_client),
-                    get_completed_matches(redis_client),
+                    get_completed_matches(redis_client, pages=completed_pages),
                 )
             )
         )
@@ -530,6 +538,14 @@ async def parse_results_page(content: bytes, redis_client: Redis) -> list[schema
         soup.find_all("div", class_="wf-card"),
         redis_client,
     )
+
+
+async def get_completed_matches_page(redis_client: Redis, page: int = 1) -> list[schemas.Match]:
+    async with get_http_client() as client:
+        response = await client.get(completed_matches_url(page))
+        if response.status_code != http.HTTPStatus.OK:
+            raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
+    return await parse_results_page(response.content, redis_client)
 
 
 async def get_completed_matches(redis_client: Redis, pages: int = 1) -> list[schemas.Match]:
@@ -833,15 +849,21 @@ def parse_score(data: Tag) -> int | None:
     return None
 
 
+def get_best_of(soup: BeautifulSoup) -> int | None:
+    for note in soup.find_all(class_="match-header-vs-note"):
+        if match := re.search(r"\b(?:bo\s*|best\s+of\s+)([1-9][0-9]*)\b", note.get_text(), re.IGNORECASE):
+            return int(match.group(1))
+    return None
+
+
 def get_total_maps(soup: BeautifulSoup) -> int:
     """Determine the maximum number of maps in the series (e.g. 1, 3, or 5).
 
     :param soup: Match page BeautifulSoup.
     :return: Total maps scheduled for the match.
     """
-    for note in soup.find_all("div", class_="match-header-vs-note"):
-        if match := re.search(r"bo(\d+)", note.get_text(), re.IGNORECASE):
-            return int(match.group(1))
+    if best_of := get_best_of(soup):
+        return best_of
     nav = soup.find_all(class_="vm-stats-gamesnav-item")
     total = sum(1 for item in nav if item.get("data-game-id") != "all")
     return total or 1

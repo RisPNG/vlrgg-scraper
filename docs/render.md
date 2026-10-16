@@ -18,6 +18,8 @@ Create a Render Blueprint from this fork and select `render.yaml` on `dbless`, o
 
 The default installation serves the scraping API without PostgreSQL, Redis, Firebase, or API credentials. Leave `ENABLE_DATABASE`, `ENABLE_CACHE`, `ENABLE_ID_MAPPING`, and `ENABLE_LIVE_PUSH` disabled. `/health` is public and returns `{"status":"ok"}` after the application starts. Machine match timestamps are converted to UTC. `TIMEZONE` only interprets rendered date and clock strings without machine timestamps or offsets; it is a source timezone, so do not set it to a calendar's display timezone. Its default is `America/New_York`. Check a known match from the deployed service against VLR before changing that fallback for the service's outbound location.
 
+The shared HTTP client spaces VLR request starts by `VLR_REQUEST_INTERVAL_SECONDS`, which defaults to one second. Concurrent requests to different API endpoints use the same pacing within the single worker. Additional worker processes or service instances each have their own pacing. This courtesy setting does not establish a permitted VLR request rate.
+
 Render's free web service sleeps after 15 minutes without inbound traffic. The next request can take about a minute while it starts. A scheduled calendar fetch should allow for that cold start. The service stores no required local state. A paid web instance can remove the idle sleep without adding a database.
 
 The Dockerfile uses the same production dependency set and one Uvicorn worker. It listens on `PORT`, defaulting to `8000`, and starts the installed environment directly instead of resolving dependencies during startup. Optional database, push, and agent features require their corresponding extras and configuration as described in the README.

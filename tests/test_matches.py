@@ -26,6 +26,8 @@ async def test_match_details_follow_the_public_response_contract(http_response):
     assert result.event.id == "2283"
     assert result.event.series == "Event Series"
     assert result.event.patch == "13.05"
+    assert result.id == "12345"
+    assert result.best_of is None
     assert result.map_count == 2
     assert [(item.number, item.map, [team.score for team in item.teams], item.winner) for item in result.data] == [
         (1, "Lotus", [13, 10], "Team A"),
@@ -70,6 +72,23 @@ async def test_match_details_follow_the_public_response_contract(http_response):
         upcoming_result = await matches.match_by_id("12345", AsyncMock())
 
     assert upcoming_result.data == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("format_note", "best_of"), [("Bo5", 5), ("Best of 3", 3), ("", None)])
+async def test_match_format_is_known_only_from_the_scheduled_format(format_note, best_of, http_response):
+    soup = BeautifulSoup((FIXTURE_DIR / "match_12345.html").read_bytes(), "lxml")
+    note = soup.new_tag("span", attrs={"class": "match-header-vs-note"})
+    note.string = format_note
+    soup.body.append(note)
+    response = http_response("https://www.vlr.gg/12345", str(soup).encode())
+
+    with patch("httpx2.AsyncClient.get", return_value=response):
+        result = await matches.match_by_id("12345", None)
+
+    assert result.best_of == best_of
+    assert result.total_maps == (best_of or 3)
+    assert result.event.status == "completed"
 
 
 @pytest.mark.asyncio
@@ -232,6 +251,17 @@ async def test_match_list_keeps_each_upcoming_date_group(monkeypatch, http_respo
     assert starts["684611"] is None
     assert starts["684612"] is None
     assert starts["684614"] == datetime(2026, 6, 8, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_global_schedule_can_skip_completed_history(http_response):
+    response = http_response(constants.UPCOMING_MATCHES_URL, (FIXTURE_DIR / "matches.html").read_bytes())
+    with patch("httpx2.AsyncClient.get", return_value=response) as get:
+        result = await matches.match_list(None, include_completed=False)
+
+    assert {match.id for match in result} >= {"684611", "684612"}
+    assert all(match.status != "completed" for match in result)
+    get.assert_called_once_with(constants.UPCOMING_MATCHES_URL)
 
 
 @pytest.mark.asyncio

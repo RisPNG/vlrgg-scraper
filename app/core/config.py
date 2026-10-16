@@ -1,7 +1,7 @@
 import json
 from typing import Annotated, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -51,6 +51,7 @@ class Settings(BaseSettings):
 
     USER_AGENTS: Annotated[list[str], NoDecode] = ["val-esports-app/1.0"]
     HTTP_LOCAL_ADDRESSES: Annotated[list[str], NoDecode] = []
+    VLR_REQUEST_INTERVAL_SECONDS: float = Field(default=1.0, ge=0)
 
     TIMEZONE: str = "America/New_York"
 

@@ -64,6 +64,7 @@ class Match(BaseModel):
     teams: list[MatchTeam]
     round: str
     stage: str
+    best_of: int | None = Field(default=None, ge=1, description="Scheduled best-of format, when VLR provides it")
 
     @computed_field  # type: ignore[prop-decorator]
     @property

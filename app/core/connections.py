@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -29,6 +30,26 @@ async def rotate_user_agent(request: httpx2.Request) -> None:
     :return: None.
     """
     request.headers["User-Agent"] = next(_user_agents)
+
+
+class VLRRequestPacer:
+    """Space VLR request starts across one shared client and its event loop."""
+
+    def __init__(self, interval: float) -> None:
+        self._interval = interval
+        self._lock = asyncio.Lock()
+        self._next_request_at = 0.0
+
+    async def __call__(self, request: httpx2.Request) -> None:
+        """Wait for the next VLR request slot before sending the request."""
+        if not self._interval or request.url.host not in {"vlr.gg", "www.vlr.gg"}:
+            return
+        loop = asyncio.get_running_loop()
+        async with self._lock:
+            delay = self._next_request_at - loop.time()
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._next_request_at = loop.time() + self._interval
 
 
 class RotatingAddressTransport(httpx2.AsyncBaseTransport):
@@ -74,10 +95,11 @@ async def get_http_client() -> AsyncIterator[httpx2.AsyncClient]:
     if http_client is not None:
         yield http_client
     else:
+        pace_requests = VLRRequestPacer(settings.VLR_REQUEST_INTERVAL_SECONDS)
         async with httpx2.AsyncClient(
             transport=build_transport(),
             timeout=REQUEST_TIMEOUT,
             headers={},
-            event_hooks={"request": [rotate_user_agent]},
+            event_hooks={"request": [pace_requests, rotate_user_agent]},
         ) as client:
             yield client

@@ -3,14 +3,13 @@ import socket
 from collections.abc import AsyncIterator, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 
-import httpx2
 import redis.asyncio as redis
 import sentry_sdk
 from arq.connections import RedisSettings
 from fastapi import Depends, FastAPI, Request, Response
 from fastapi.middleware.gzip import GZipMiddleware
 
-from app import constants, exceptions, i18n
+from app import exceptions, i18n
 from app.api import deps
 from app.api.v1.api import router
 from app.api.v2.api import router as api_v2_router
@@ -30,14 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator:
     logger.info("Creating shared HTTP client")
     try:
         async with AsyncExitStack() as resources:
-            connections.http_client = await resources.enter_async_context(
-                httpx2.AsyncClient(
-                    transport=connections.build_transport(),
-                    timeout=constants.REQUEST_TIMEOUT,
-                    headers={},
-                    event_hooks={"request": [connections.rotate_user_agent]},
-                )
-            )
+            connections.http_client = await resources.enter_async_context(connections.get_http_client())
             if settings.ENABLE_DATABASE:
                 from app.db.lifecycle import start_database, stop_database
 

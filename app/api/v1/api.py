@@ -6,6 +6,7 @@ from app.api.v1.endpoints.news import router as news_router
 from app.api.v1.endpoints.player import router as player_router
 from app.api.v1.endpoints.rankings import router as rankings_router
 from app.api.v1.endpoints.search import router as search_router
+from app.api.v1.endpoints.series import router as series_router
 from app.api.v1.endpoints.standings import router as standings_router
 from app.api.v1.endpoints.team import router as team_router
 from app.api.v1.endpoints.version import router as version_router
@@ -22,6 +23,7 @@ router.include_router(rankings_router, prefix="/rankings", tags=["Rankings"])
 router.include_router(standings_router, prefix="/standings", tags=["Standings"])
 router.include_router(version_router, prefix="/version", tags=["Version"])
 router.include_router(search_router, prefix="/search", tags=["Search"])
+router.include_router(series_router, prefix="/series", tags=["Series"])
 if settings.ENABLE_LIVE_PUSH:
     from app.api.v1.endpoints.live_updates import router as live_updates_router
 

@@ -79,6 +79,7 @@ Environment variables (see `app/core/config.py`):
 - `DATABASE_URL`: PostgreSQL connection URL, required only with `ENABLE_DATABASE=true`, using the `postgresql+asyncpg://` scheme
 - `INTERNAL_API_KEY`: Optional key exposing internal cache endpoints when ID mapping is enabled
 - `TIMEZONE`: Source timezone for rendered dates without an explicit offset or machine timestamp (default `America/New_York`). Machine timestamps are interpreted independently of the host's location.
+- `VLR_REQUEST_INTERVAL_SECONDS`: Minimum spacing between VLR request starts in the shared client (default `1`, minimum `0`). Concurrent API calls share this pacing within one worker process. This courtesy interval is not a verified VLR quota.
 - `GOOGLE_APPLICATION_CREDENTIALS`: Path to Firebase credentials (for notifications)
 
 PostgreSQL initialization and Alembic migrations run only with `ENABLE_DATABASE=true`. The default API omits favorites, client tokens, live push, and database-backed `/api/v2/rankings` routes. Enabling Redis caching alone does not ingest PostgreSQL history. See [docs/postgres.md](docs/postgres.md) for optional database setup and backups.

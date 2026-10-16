@@ -137,6 +137,7 @@ class PushCurrentMap(BaseModel):
 
 # Response for `GET /api/v1/matches/{match_id}`
 class MatchWithDetails(BaseModel):
+    id: str = ""
     teams: list[TeamWithImage]
     bans: list[str]
     veto: list[Veto] = []
@@ -144,6 +145,7 @@ class MatchWithDetails(BaseModel):
     videos: MatchVideos
     map_count: int
     total_maps: int = 1
+    best_of: int | None = Field(default=None, ge=1, description="Scheduled best-of format, when VLR provides it")
     data: list[MatchData]
     previous_encounters: list[PreviousEncounters]
 
@@ -182,6 +184,7 @@ class Match(BaseModel):
     event: str
     series: str
     event_id: str | None = None
+    best_of: int | None = Field(default=None, ge=1, description="Scheduled best-of format, when VLR provides it")
 
     @computed_field  # type: ignore[prop-decorator]
     @property

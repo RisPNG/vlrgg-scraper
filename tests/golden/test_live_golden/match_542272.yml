@@ -6,6 +6,7 @@ bans:
 - NRG pick Abyss
 - FNC pick Ascent
 - Sunset remains
+best_of: 5
 current_map: null
 data:
 - live: false
@@ -1636,6 +1637,7 @@ event:
   stage: 'Playoffs: Grand Final'
   status: final
   status_label: Completed
+id: '542272'
 map_count: 5
 previous_encounters:
 - match_id: '542270'
