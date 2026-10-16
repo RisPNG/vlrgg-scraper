@@ -10,6 +10,7 @@ from redis.asyncio import Redis
 from app import constants
 from app.api import deps
 from app.cron import synthetic_match
+from app.db.deps import SubscriptionStoreDep
 from app.exceptions import BadRequestError, ConflictError, NotFoundError, ScrapingError
 from app.schemas.matches import CompactState, Favorites, MatchWithDetails, TokenRegistration
 from app.services import matches, push, video_rounds
@@ -29,31 +30,31 @@ async def trigger_test_match(client: deps.RedisDep) -> None:
 
 
 @router.put("/clients/{client_id}/token", status_code=status.HTTP_204_NO_CONTENT)
-async def put_token(client_id: UUID, body: TokenRegistration, store: deps.SubscriptionStoreDep) -> None:
+async def put_token(client_id: UUID, body: TokenRegistration, store: SubscriptionStoreDep) -> None:
     """Store a client's APNs push-to-start or FCM token, and whether it has live updates on."""
     await store.register_token(str(client_id), body.token, body.platform, body.live_updates)
 
 
 @router.delete("/clients/{client_id}/token", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_token(client_id: UUID, store: deps.SubscriptionStoreDep) -> None:
+async def delete_token(client_id: UUID, store: SubscriptionStoreDep) -> None:
     """Delete a client's push token."""
     await store.delete_token(str(client_id))
 
 
 @router.put("/clients/{client_id}/favorites", status_code=status.HTTP_204_NO_CONTENT)
-async def put_favorites(client_id: UUID, body: Favorites, store: deps.SubscriptionStoreDep) -> None:
+async def put_favorites(client_id: UUID, body: Favorites, store: SubscriptionStoreDep) -> None:
     """Add to a client's favorites; existing ones are kept."""
     await store.add_favorites(str(client_id), body)
 
 
 @router.delete("/clients/{client_id}/favorites", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_favorites(client_id: UUID, body: Favorites, store: deps.SubscriptionStoreDep) -> None:
+async def delete_favorites(client_id: UUID, body: Favorites, store: SubscriptionStoreDep) -> None:
     """Remove the given favorites from a client's."""
     await store.remove_favorites(str(client_id), body)
 
 
 @router.get("/clients/{client_id}/favorites")
-async def get_favorites(client_id: UUID, store: deps.SubscriptionStoreDep) -> Favorites:
+async def get_favorites(client_id: UUID, store: SubscriptionStoreDep) -> Favorites:
     """Read a client's favorites."""
     return await store.get_favorites(str(client_id))
 
@@ -65,7 +66,7 @@ async def get_favorites(client_id: UUID, store: deps.SubscriptionStoreDep) -> Fa
 async def start_live_activity(
     client_id: UUID,
     match_id: deps.MatchId,
-    store: deps.SubscriptionStoreDep,
+    store: SubscriptionStoreDep,
     redis_client: deps.RedisDep,
 ) -> None:
     """Instantly trigger a live match push (APNs push-to-start for iOS, direct FCM message for Android)."""

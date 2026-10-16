@@ -125,12 +125,8 @@ installed by `scripts/install-systemd-user.sh` and updated by `scripts/deploy.sh
   so an old-schema entry raises until it expires. `ci.yml` fails on such a change as a
   reminder (see [Cache Invalidation](caching.md#cache-invalidation) and
   [AGENTS.md: Caching](../AGENTS.md#caching)).
-- VLR renders match times in the zone of the address a request arrives from, and every
-  parsed time is read as `TIMEZONE` (`app/utils.py`). Each `HTTP_LOCAL_ADDRESSES` entry
-  must therefore egress where `TIMEZONE` holds. One address once geolocated elsewhere and
-  wrote match times 10.5 hours out, alternating as requests rotated across the pool; the
-  egress was rotated rather than the setting changed, because the other addresses render
-  the configured zone correctly.
+- Match starts use VLR's `data-utc-ts` when available: numeric values are Unix seconds, while naive date strings are New York wall clocks. Offset-aware values retain their instant and all known starts are returned in UTC. An unannounced or missing clock is null, rather than midnight. Event matches retain their advertised date when their time is unknown.
+- VLR renders other date and clock strings in the zone of the address a request arrives from. `TIMEZONE` is the fallback for those naive strings, so each `HTTP_LOCAL_ADDRESSES` entry must egress where `TIMEZONE` holds. One address once geolocated elsewhere and wrote match times 10.5 hours out, alternating as requests rotated across the pool. Machine timestamps avoid that dependency. Rendered-only pages still require the correct fallback zone.
 - The Unix socket keeps its `0666` mode for Nginx; restrict access with the
   containing directory's permissions or ACLs. Other files are created owner-only
   (`UMask=0077`). Proxy-header trust is unchanged, so verify Nginx can connect before

@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, HttpUrl, computed_field
+from pydantic import BaseModel, Field, HttpUrl, computed_field
 
 from app import i18n
 
@@ -19,7 +19,7 @@ class MatchBase(BaseModel):
     stage: str
     opponent: str
     opponent_tag: str | None = None
-    date: datetime
+    date: datetime | None = Field(default=None, description="Match start in UTC, or null when unannounced")
     roster_core: str | None = None
     opponent_roster_core: str | None = None
 

@@ -7,7 +7,11 @@ on:
 
 jobs:
   parser-health:
+    if: ${{ github.repository == 'RisPNG/vlrgg-scraper' && github.ref == 'refs/heads/dbless' }}
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
 
     env:
       REDIS_HOST: localhost
@@ -15,21 +19,27 @@ jobs:
       TIMEZONE: UTC
       ENABLE_CACHE: "false"
       ENABLE_ID_MAPPING: "false"
+      ENABLE_DATABASE: "false"
+      ENABLE_LIVE_PUSH: "false"
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        persist-credentials: false
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
-        python-version: "3.14"
+        python-version: "3.14.7"
 
     - name: Install uv
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
+      uses: astral-sh/setup-uv@v6
+      with:
+        version: '0.12.5'
 
     - name: Install dependencies
-      run: uv sync
+      run: uv sync --frozen
 
     - name: Generate internal API key
       run: echo "INTERNAL_API_KEY=$(openssl rand -hex 16)" >> $GITHUB_ENV
@@ -41,11 +51,11 @@ jobs:
     # parser is broken, not that VLR had a bad night.
     - name: Run live parser checks
       run: >
-        uv run pytest -m "live_health or live_golden" tests/live tests/golden
+        uv run --no-sync pytest -m "live_health or live_golden" tests/live tests/golden
         -v --tb=short --reruns 2 --reruns-delay 5 --junitxml=health.xml
 
     # A job where everything skipped is the failure mode this suite was built to
     # end: green while testing nothing. Skips must not be able to mask the run.
     - name: Fail if every check was skipped
       if: always()
-      run: uv run python -m tests.live.check_executed health.xml
+      run: uv run --no-sync python -m tests.live.check_executed health.xml

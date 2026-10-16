@@ -1,7 +1,6 @@
 import asyncio
 import http
 
-import dateutil.parser
 from bs4 import BeautifulSoup, Tag
 
 from app import cache, constants, schemas, utils
@@ -267,7 +266,10 @@ def parse_match(match_data: Tag) -> dict:
     if len(teams) > 1 and (opp_tag := teams[1].find("span", class_="m-item-team-tag")):
         response["opponent_tag"] = utils.clean_string(opp_tag.get_text()) or None
 
-    response["date"] = utils.fix_datetime_tz(
-        dateutil.parser.parse(match_data.find("div", class_="m-item-date").get_text(), ignoretz=True)
+    timestamp_element = match_data.find(attrs={"data-utc-ts": True})
+    date_element = match_data.find("div", class_="m-item-date")
+    response["date"] = utils.parse_match_datetime(
+        date_element.get_text(" ", strip=True) if date_element is not None else "",
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
     )
     return response

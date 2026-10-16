@@ -21,7 +21,7 @@ async def upgrade_to_head(database_url: str) -> None:
         """
         config = Config("alembic.ini")
         config.attributes["app"] = True
-        config.set_main_option("sqlalchemy.url", database_url)
+        config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
         command.upgrade(config, "head")
 
     await asyncio.to_thread(upgrade)

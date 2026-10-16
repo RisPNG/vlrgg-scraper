@@ -1,16 +1,13 @@
 import asyncio
 import http
 
-import dateutil.parser
 from bs4 import BeautifulSoup, Tag
 from bs4.element import ResultSet
-from app.exceptions import ScrapingError
 
-from app import schemas, utils, cache
-import app.constants as constants
+from app import cache, constants, schemas, utils
 from app.core.connections import get_http_client
+from app.exceptions import ScrapingError
 from app.utils import clean_number_string, expand_url, get_image_url, is_twitter_url, twitter_profile_url
-
 
 # VLR returns 50 match-history cards per page. When fetching "all" pages we request
 # them in batches of this size and stop as soon as a page yields no cards.
@@ -186,9 +183,7 @@ def parse_player_matches(content: bytes) -> list[dict]:
     return [parse_player_match(match) for match in soup.find_all("a", class_="wf-card fc-flex m-item")]
 
 
-async def fetch_additional_player_matches(
-    client, id: str, pages: int, seen: set[str] | None = None
-) -> list[dict]:
+async def fetch_additional_player_matches(client, id: str, pages: int, seen: set[str] | None = None) -> list[dict]:
     """
     Fetch match-history pages beyond page 1, preserving order (page 2, then 3, ...).
 
@@ -293,7 +288,10 @@ def parse_player_match(match_data: Tag) -> dict:
     if len(teams) > 1 and (opp_core := teams[1].find("div", class_="m-item-team-core")):
         response["opponent_roster_core"] = utils.clean_string(opp_core.get_text())
 
-    response["date"] = utils.fix_datetime_tz(
-        dateutil.parser.parse(match_data.find("div", class_="m-item-date").get_text(), ignoretz=True)
+    timestamp_element = match_data.find(attrs={"data-utc-ts": True})
+    date_element = match_data.find("div", class_="m-item-date")
+    response["date"] = utils.parse_match_datetime(
+        date_element.get_text(" ", strip=True) if date_element is not None else "",
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
     )
     return response

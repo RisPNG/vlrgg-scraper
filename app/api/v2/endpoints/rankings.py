@@ -4,6 +4,7 @@ from fastapi import APIRouter, Query
 
 from app import schemas
 from app.api import deps
+from app.db.deps import DatabaseSessionDep
 from app.services import team_rankings
 
 router = APIRouter()
@@ -11,7 +12,7 @@ router = APIRouter()
 
 @router.get("/")
 async def get_rankings(
-    session: deps.DatabaseSessionDep,
+    session: DatabaseSessionDep,
     query: Annotated[schemas.RankingQuery, Query()],
 ) -> schemas.RankingListResponse:
     """Rank teams by stored Elo, optionally within one circuit."""
@@ -20,7 +21,7 @@ async def get_rankings(
 
 @router.get("/predict")
 async def predict_match(
-    session: deps.DatabaseSessionDep,
+    session: DatabaseSessionDep,
     query: Annotated[schemas.PredictQuery, Query()],
 ) -> schemas.PredictResponse:
     """Predict a series with source and warnings, plus generic map Elo."""
@@ -29,7 +30,7 @@ async def predict_match(
 
 @router.get("/teams/{team_id}")
 async def get_team_ranking(
-    session: deps.DatabaseSessionDep,
+    session: DatabaseSessionDep,
     team_id: deps.TeamId,
 ) -> schemas.TeamRankingProfileResponse:
     """Read a team's Elo, ranks, form, and recent results."""

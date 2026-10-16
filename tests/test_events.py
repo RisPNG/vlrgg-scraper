@@ -1,9 +1,11 @@
+from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from bs4 import BeautifulSoup
 
-from app.constants import EVENTS_URL
+from app.constants import EVENT_URL_WITH_ID_MATCHES, EVENTS_URL
 from app.exceptions import ScrapingError
 from app.services import events
 
@@ -75,3 +77,21 @@ async def test_event_details_follow_the_current_public_contract(http_get):
         degraded = await events.get_event_by_id("2863")
 
     assert (degraded.title, degraded.teams, degraded.standings) == (result.title, result.teams, [])
+
+
+@pytest.mark.asyncio
+async def test_event_match_times_use_utc_and_preserve_an_unannounced_date(http_response):
+    soup = BeautifulSoup((FIXTURE_DIR / "matches.html").read_bytes(), "lxml")
+    cards = soup.select("a.match-item")
+    timing = cards[0].select_one(".match-item-time")
+    timing["data-utc-ts"] = "2026-06-25 23:00:00"
+    timing.string = "4:00 AM"
+    cards[1].select_one(".match-item-time").string = "TBD"
+    url = EVENT_URL_WITH_ID_MATCHES.format("2863")
+
+    with patch("httpx2.AsyncClient.get", return_value=http_response(url, str(soup).encode())):
+        result = await events.parse_match_data("2863")
+
+    starts = {match["id"]: (match["date"], match["time"]) for match in result}
+    assert starts["684611"] == (date(2026, 6, 26), "03:00:00")
+    assert starts["684612"] == (date(2026, 6, 7), None)

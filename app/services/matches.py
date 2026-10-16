@@ -2,10 +2,8 @@ import asyncio
 import http
 import re
 from asyncio import gather
-from datetime import datetime
 from itertools import chain
 
-import dateutil.parser
 from bs4 import BeautifulSoup, Tag
 from bs4.element import ResultSet
 from redis.asyncio import Redis
@@ -18,9 +16,9 @@ from app.utils import (
     clean_number_string,
     clean_string,
     expand_url,
-    fix_datetime_tz,
     get_href,
     get_image_url,
+    parse_match_datetime,
     simplify_name,
 )
 
@@ -157,13 +155,12 @@ def get_event_data(soup: BeautifulSoup) -> dict:
     """
     event_data = soup.find("div", class_="match-header-super")
     event_link = event_data.find("a", class_="match-header-event")
-    event_date: datetime | None = None
-    if (
-        date_str := " ".join(
-            [data.get_text().strip() for data in soup.find_all("div", class_="moment-tz-convert")]
-        ).strip()
-    ) and constants.TBD not in date_str.lower():
-        event_date = fix_datetime_tz(dateutil.parser.parse(date_str, ignoretz=True))
+    date_elements = soup.select(".match-header-date .moment-tz-convert") or soup.select(".moment-tz-convert")
+    timestamp_element = next((element for element in date_elements if element.get("data-utc-ts")), None)
+    event_date = parse_match_datetime(
+        " ".join(element.get_text(" ", strip=True) for element in date_elements),
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+    )
 
     if soup.find("span", class_="match-header-vs-note mod-upcoming"):
         status = "upcoming"
@@ -759,11 +756,13 @@ async def parse_match(
     team_scores = match_info.find_all("div", class_="match-item-vs-team-score")
     status = match_info.find("div", class_="ml-status").get_text().strip().lower()
     parsed_date = clean_string(date.get_text().split("\n")[1])
-    time = clean_string(match_info.find("div", class_="match-item-time").get_text())
-    if time.lower() == constants.TBD:
-        date_string = parsed_date
-    else:
-        date_string = parsed_date + " " + time
+    time_element = match_info.find("div", class_="match-item-time")
+    time = clean_string(time_element.get_text()) if time_element is not None else ""
+    timestamp_element = match_info.find(attrs={"data-utc-ts": True})
+    start_time = parse_match_datetime(
+        f"{parsed_date} {time}",
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+    )
 
     team1_id = team2_id = event_id = None
     if settings.ENABLE_ID_MAPPING:
@@ -815,7 +814,7 @@ async def parse_match(
         team1=schemas.MatchTeam(name=team1_name, id=team1_id, score=score1),
         team2=schemas.MatchTeam(name=team2_name, id=team2_id, score=score2),
         status=status,
-        time=fix_datetime_tz(dateutil.parser.parse(date_string, ignoretz=True)),  # type: ignore
+        time=start_time,
         id=match_id,
         event=event_name,
         series=clean_string(match_info.find("div", class_="match-item-event-series").get_text()),

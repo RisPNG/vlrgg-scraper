@@ -9,23 +9,30 @@ authors = [
 dependencies = [
     "fastapi[all]>=0.141.1,<0.142",
     "httpx2[http2]",
-    "PyJWT[crypto]",
     "beautifulsoup4",
     "uvicorn[standard]",
     "gunicorn",
     "uvicorn-worker",
     "python-dateutil",
-    "firebase-admin",
     "sentry-sdk[arq,fastapi,starlette]",
     "lxml",
     "redis[hiredis]",
     "arq",
     "rich",
-    "openai",
+]
+
+[project.optional-dependencies]
+database = [
     "sqlalchemy[asyncio]>=2.1.1,<3",
     "alembic",
     "asyncpg",
 ]
+push = [
+    "app[database]",
+    "firebase-admin",
+    "PyJWT[crypto]",
+]
+agent = ["openai"]
 
 [dependency-groups]
 dev = [

@@ -66,7 +66,11 @@ async def team_rankings_cron(ctx: dict) -> None:
     changed = False
     raw = await ctx["redis"].get("matches")
     if raw:
-        completed = [match for match in schemas.MatchListAdapter.validate_json(raw) if utils.is_final(match.status)]
+        completed = [
+            match
+            for match in schemas.MatchListAdapter.validate_json(raw)
+            if utils.is_final(match.status) and match.time is not None
+        ]
         if completed:
             async with sessions() as session:
                 stored = await ranking_store.stored_listings(session)

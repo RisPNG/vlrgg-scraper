@@ -1,9 +1,6 @@
 # PostgreSQL
 
-The app stores subscriptions, scraped entities, and the ranking ledger in
-PostgreSQL. It connects through `DATABASE_URL`; the default
-`postgresql+asyncpg:///vlrgg` uses the local Unix socket with peer
-authentication, so the service's OS user needs a role of the same name.
+The default `dbless` installation does not need PostgreSQL. These instructions apply to optional subscriptions, scraped entity storage, and the ranking ledger. Install `uv sync --frozen --extra database`, set `ENABLE_DATABASE=true`, and supply `DATABASE_URL` explicitly. A URL such as `postgresql+asyncpg:///vlrgg` uses the local Unix socket with peer authentication, so the service's OS user needs a role of the same name.
 
 ## Server setup
 

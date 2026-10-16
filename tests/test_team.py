@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app import constants
 from app.exceptions import ScrapingError
@@ -72,3 +73,18 @@ async def test_team_response_does_not_cache_partial_match_history(http_get):
         await team.get_team_data(TEAM_ID, completed_pages=2)
 
     cache_set.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_team_unannounced_match_has_no_start_time(http_get):
+    pages = _team_pages()
+    url = constants.TEAM_UPCOMING_MATCHES_URL.format(TEAM_ID)
+    soup = BeautifulSoup(pages[url], "lxml")
+    soup.select_one(".m-item-date").string = "2026/06/21 TBD"
+    pages[url] = str(soup).encode()
+
+    with patch("httpx2.AsyncClient.get", side_effect=http_get(pages)):
+        result = await team.get_team_data(TEAM_ID)
+
+    assert len(result.upcoming) == 1
+    assert result.upcoming[0].date is None

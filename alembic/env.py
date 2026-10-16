@@ -14,7 +14,9 @@ config = context.config
 if config.config_file_name and not config.attributes.get("app"):
     fileConfig(config.config_file_name, disable_existing_loggers=False)
 database_url = config.get_main_option("sqlalchemy.url") or settings.DATABASE_URL
-config.set_main_option("sqlalchemy.url", database_url)
+if not database_url:
+    raise ValueError("DATABASE_URL is required to run migrations")
+config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 target_metadata = Base.metadata
 
 

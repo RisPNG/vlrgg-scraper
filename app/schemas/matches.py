@@ -178,7 +178,7 @@ class Match(BaseModel):
     team1: MatchTeam
     team2: MatchTeam
     status: MatchStatus
-    time: datetime
+    time: datetime | None = Field(default=None, description="Match start in UTC, or null when unannounced")
     event: str
     series: str
     event_id: str | None = None

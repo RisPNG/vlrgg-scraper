@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 
 class Agent(BaseModel):
@@ -34,7 +34,7 @@ class PlayerTeam(BaseModel):
 # A single match from a player's paginated match history (`/player/matches/{id}`).
 class PlayerMatch(BaseModel):
     id: str
-    date: datetime
+    date: datetime | None = Field(default=None, description="Match start in UTC, or null when unannounced")
     event: str
     stage: str
     team: str  # The player's team in that match (first team listed on the card)

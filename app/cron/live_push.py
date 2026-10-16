@@ -370,7 +370,8 @@ async def _match_due(client: Redis) -> bool:
         return True
     horizon = datetime.now(UTC) + constants.PUSH_LISTING_LEAD
     return any(
-        is_live(match.status) or (match.status != constants.MatchStatus.COMPLETED and match.time <= horizon)
+        is_live(match.status)
+        or (match.status != constants.MatchStatus.COMPLETED and match.time is not None and match.time <= horizon)
         for match in schemas.MatchListAdapter.validate_json(data)
     )
 

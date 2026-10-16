@@ -1,14 +1,18 @@
 import itertools
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
 
 import httpx2
 from redis.asyncio import ConnectionPool
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 
 from app.constants import REQUEST_TIMEOUT
 from app.core.config import settings
-from app.services.apns import APNsClient
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+
+    from app.services.apns import APNsClient
 
 redis_pool: ConnectionPool | None = None
 http_client: httpx2.AsyncClient | None = None

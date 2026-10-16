@@ -1,7 +1,10 @@
+import re
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import urljoin, urlparse, urlsplit
 from zoneinfo import ZoneInfo
+
+import dateutil.parser
 
 from app import constants
 from app.constants import PREFIX
@@ -85,7 +88,31 @@ def get_image_url(img: str | list[str]) -> str:
 
 
 def fix_datetime_tz(value: datetime) -> datetime:
-    return value.replace(tzinfo=_TZ_LOCAL).astimezone(_TZ_UTC)
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=_TZ_LOCAL)
+    return value.astimezone(_TZ_UTC)
+
+
+def parse_match_datetime(value: str, timestamp: str | None = None) -> datetime | None:
+    """Read VLR's stored match time or a rendered date and clock as UTC.
+
+    :param value: Visible date and time text.
+    :param timestamp: VLR's data-utc-ts value, as Unix seconds or a New York wall clock.
+    :return: An aware UTC start time, or None when the start time is unknown.
+    """
+    if constants.TBD in value.casefold():
+        return None
+    if timestamp:
+        timestamp = timestamp.strip()
+        if timestamp.isdecimal():
+            return datetime.fromtimestamp(int(timestamp), UTC)
+        start = datetime.fromisoformat(timestamp)
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=ZoneInfo(constants.MATCH_TIMEZONE))
+        return start.astimezone(UTC)
+    if not re.search(r"\b\d{1,2}:\d{2}\b", value):
+        return None
+    return fix_datetime_tz(dateutil.parser.parse(value))
 
 
 def clean_string(value: str) -> str:

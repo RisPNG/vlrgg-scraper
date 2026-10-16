@@ -1,6 +1,6 @@
-from datetime import date
+from datetime import date as date_type
 
-from pydantic import BaseModel, HttpUrl, computed_field
+from pydantic import BaseModel, Field, HttpUrl, computed_field
 
 from app import i18n
 from app.constants import EventStatus, MatchStatus
@@ -57,8 +57,8 @@ class MatchTeam(BaseModel):
 
 class Match(BaseModel):
     id: str
-    time: str
-    date: date
+    time: str | None = Field(default=None, description="Match start clock in UTC, or null when unannounced")
+    date: date_type = Field(description="UTC match date when its time is known, otherwise the advertised date")
     eta: str | None = None
     status: MatchStatus
     teams: list[MatchTeam]

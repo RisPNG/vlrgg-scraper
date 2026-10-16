@@ -18,3 +18,10 @@ README.md
 sa.json
 db.sqlite3*
 backups/
+AGENTS.md
+CLAUDE.md
+WRITING-SPEC.md
+TASK-PROGRESS.md
+*PLAN*.md
+*REVIEW*.md
+*PROGRESS*.md

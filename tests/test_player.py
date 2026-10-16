@@ -2,6 +2,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from bs4 import BeautifulSoup
 
 from app import constants
 from app.services import player
@@ -57,3 +58,18 @@ async def test_player_response_includes_identity_stats_history_and_cache(http_ge
     assert result.matches[0].opponent_roster_core
     assert cached_result == result
     get.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_player_history_does_not_invent_a_time_for_a_date_only(http_get):
+    pages = _player_pages()
+    url = player.player_matches_url(PLAYER_ID, 1)
+    soup = BeautifulSoup(pages[url], "lxml")
+    soup.select_one(".m-item-date").string = "2022/12/05"
+    pages[url] = str(soup).encode()
+
+    with patch("httpx2.AsyncClient.get", side_effect=http_get(pages)):
+        result = await player.get_player_data(PLAYER_ID)
+
+    assert len(result.matches) == 50
+    assert result.matches[0].date is None
