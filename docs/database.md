@@ -1,5 +1,7 @@
 # Database
 
+Persistence is optional on `dbless` and disabled by default. This document describes the features enabled by installing the `database` extra and setting `ENABLE_DATABASE=true` with a `DATABASE_URL`. The stateless scraper does not initialize PostgreSQL or expose database-backed routes. Live push additionally requires the `push` extra and its feature settings.
+
 The application keeps durable state in PostgreSQL through SQLAlchemy's async API
 (`postgresql+asyncpg`). Redis remains the L1 cache for scraped API payloads (see
 [caching.md](caching.md)); PostgreSQL holds the state that must survive restarts:
@@ -8,7 +10,7 @@ the video push falls back to when Redis is cold.
 
 ## Engine and lifecycle
 
-- `DATABASE_URL` (default `postgresql+asyncpg:///vlrgg`) names the database.
+- `DATABASE_URL` names the explicitly enabled database and has no default.
   Server setup, the SQLite cutover, backups, and contributor access are in
   [postgres.md](postgres.md).
 - `app/db/lifecycle.py` runs the Alembic migrations to head on startup, then

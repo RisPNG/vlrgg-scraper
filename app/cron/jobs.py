@@ -3,12 +3,11 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from sentry_sdk import get_current_scope
-from sqlalchemy.exc import SQLAlchemyError
 
 from app import constants, schemas
 from app.core import connections
 from app.core.config import settings
-from app.services import events, matches, news, rankings, scrape_store, standings
+from app.services import events, matches, news, rankings, standings
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +26,10 @@ async def rankings_cron(ctx: dict) -> None:
     )
     if (sessions := connections.subscription_sessions) is None:
         return
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from app.services import scrape_store
+
     try:
         async with sessions.begin() as session:
             for region in ranking_list:

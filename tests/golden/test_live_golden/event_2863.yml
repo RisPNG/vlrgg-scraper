@@ -3,7 +3,8 @@ id: '2863'
 img: https://owcdn.net/img/65ab59620a233.png
 location: Riot Games Arena, Berlin
 matches:
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644709'
   round: Week 1
   stage: Group Stage
@@ -17,7 +18,8 @@ matches:
     region: tr
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644710'
   round: Week 1
   stage: Group Stage
@@ -31,7 +33,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644711'
   round: Week 1
   stage: Group Stage
@@ -45,7 +48,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644712'
   round: Week 1
   stage: Group Stage
@@ -59,7 +63,8 @@ matches:
     region: tr
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644713'
   round: Week 1
   stage: Group Stage
@@ -73,7 +78,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644714'
   round: Week 1
   stage: Group Stage
@@ -87,7 +93,8 @@ matches:
     region: tr
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644716'
   round: Week 2
   stage: Group Stage
@@ -101,7 +108,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644717'
   round: Week 2
   stage: Group Stage
@@ -115,7 +123,8 @@ matches:
     region: tr
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644718'
   round: Week 2
   stage: Group Stage
@@ -129,7 +138,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644719'
   round: Week 2
   stage: Group Stage
@@ -143,7 +153,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644720'
   round: Week 2
   stage: Group Stage
@@ -157,7 +168,8 @@ matches:
     region: eu
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644721'
   round: Week 2
   stage: Group Stage
@@ -171,7 +183,8 @@ matches:
     region: eu
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644722'
   round: Week 3
   stage: Group Stage
@@ -185,7 +198,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644723'
   round: Week 3
   stage: Group Stage
@@ -199,7 +213,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644724'
   round: Week 3
   stage: Group Stage
@@ -213,7 +228,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644725'
   round: Week 3
   stage: Group Stage
@@ -227,7 +243,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644726'
   round: Week 3
   stage: Group Stage
@@ -241,7 +258,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644727'
   round: Week 3
   stage: Group Stage
@@ -255,7 +273,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644728'
   round: Week 4
   stage: Group Stage
@@ -269,7 +288,8 @@ matches:
     region: tr
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644729'
   round: Week 4
   stage: Group Stage
@@ -283,7 +303,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644730'
   round: Week 4
   stage: Group Stage
@@ -297,7 +318,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644731'
   round: Week 4
   stage: Group Stage
@@ -311,7 +333,8 @@ matches:
     region: tr
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644732'
   round: Week 4
   stage: Group Stage
@@ -325,7 +348,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644733'
   round: Week 4
   stage: Group Stage
@@ -339,7 +363,8 @@ matches:
     region: eu
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644734'
   round: Week 5
   stage: Group Stage
@@ -353,7 +378,8 @@ matches:
     region: tr
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644735'
   round: Week 5
   stage: Group Stage
@@ -367,7 +393,8 @@ matches:
     region: tr
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644736'
   round: Week 5
   stage: Group Stage
@@ -381,7 +408,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644737'
   round: Week 5
   stage: Group Stage
@@ -395,7 +423,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644738'
   round: Week 5
   stage: Group Stage
@@ -409,7 +438,8 @@ matches:
     region: tr
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '644739'
   round: Week 5
   stage: Group Stage
@@ -423,7 +453,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660381'
   round: Upper Round 1
   stage: Playoffs
@@ -437,7 +468,8 @@ matches:
     region: eu
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660382'
   round: Upper Round 1
   stage: Playoffs
@@ -451,7 +483,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660383'
   round: Upper Semifinals
   stage: Playoffs
@@ -465,7 +498,8 @@ matches:
     region: tr
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660384'
   round: Upper Semifinals
   stage: Playoffs
@@ -479,7 +513,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660387'
   round: Lower Round 1
   stage: Playoffs
@@ -493,7 +528,8 @@ matches:
     region: tr
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660388'
   round: Lower Round 1
   stage: Playoffs
@@ -507,7 +543,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660389'
   round: Lower Round 2
   stage: Playoffs
@@ -521,7 +558,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660390'
   round: Lower Round 2
   stage: Playoffs
@@ -535,7 +573,8 @@ matches:
     region: eu
     score: 0
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660385'
   round: Upper Final
   stage: Playoffs
@@ -549,7 +588,8 @@ matches:
     region: eu
     score: 2
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660391'
   round: Lower Round 3
   stage: Playoffs
@@ -563,7 +603,8 @@ matches:
     region: tr
     score: 1
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660392'
   round: Lower Final
   stage: Playoffs
@@ -577,7 +618,8 @@ matches:
     region: eu
     score: 3
   time: <time>
-- date: <date>
+- best_of: null
+  date: <date>
   id: '660386'
   round: Grand Final
   stage: Playoffs

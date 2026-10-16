@@ -1,8 +1,9 @@
 from datetime import datetime
 
-from pydantic import BaseModel, HttpUrl, computed_field
+from pydantic import BaseModel, Field, HttpUrl, computed_field
 
 from app import i18n
+from app.constants import MatchStatus
 
 
 class Player(BaseModel):
@@ -19,16 +20,19 @@ class MatchBase(BaseModel):
     stage: str
     opponent: str
     opponent_tag: str | None = None
-    date: datetime
+    date: datetime | None = Field(default=None, description="Match start in UTC, or null when unannounced")
     roster_core: str | None = None
     opponent_roster_core: str | None = None
+    best_of: int | None = Field(default=None, ge=1, description="Scheduled best-of format, when VLR provides it")
 
 
 class UpcomingMatch(MatchBase):
+    status: MatchStatus = MatchStatus.UPCOMING
     eta: str | None = None
 
 
 class CompletedMatch(MatchBase):
+    status: MatchStatus = MatchStatus.COMPLETED
     score: str
 
 

@@ -1,7 +1,7 @@
 import json
 from typing import Annotated, Self
 
-from pydantic import field_validator, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -30,15 +30,16 @@ def _parse_string_list(value: object, setting: str) -> list[str]:
 
 class Settings(BaseSettings):
     API_KEYS: dict = {}
-    INTERNAL_API_KEY: str
+    INTERNAL_API_KEY: str | None = None
 
     SENTRY_DSN: str | None = None
 
-    REDIS_HOST: str
+    REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
-    REDIS_PASSWORD: str
+    REDIS_PASSWORD: str | None = None
 
-    DATABASE_URL: str = "postgresql+asyncpg:///vlrgg"
+    ENABLE_DATABASE: bool = False
+    DATABASE_URL: str | None = None
 
     ENABLE_CACHE: bool = False
     ENABLE_ID_MAPPING: bool = False
@@ -50,8 +51,10 @@ class Settings(BaseSettings):
 
     USER_AGENTS: Annotated[list[str], NoDecode] = ["val-esports-app/1.0"]
     HTTP_LOCAL_ADDRESSES: Annotated[list[str], NoDecode] = []
+    VLR_REQUEST_INTERVAL_SECONDS: float = Field(default=1.0, ge=0)
 
-    TIMEZONE: str
+    TIMEZONE: str = "America/New_York"
+    DETECT_SOURCE_TIMEZONE: bool = True
 
     # Optional standalone prediction service; predict falls back to Elo when unset or unreachable.
     PREDICTION_SERVICE_URL: str | None = None
@@ -95,22 +98,26 @@ class Settings(BaseSettings):
         return _parse_string_list(value, "HTTP_LOCAL_ADDRESSES")
 
     @model_validator(mode="after")
-    def require_cache_for_id_mapping(self) -> Self:
-        """Refuse ID mapping without the cache that stores the mapping.
-
-        Without it every lookup misses and each listed match falls back to a VLR detail fetch.
+    def validate_features(self) -> Self:
+        """Validate the services required by explicitly enabled features.
 
         :return: The validated settings.
-        :raises ValueError: If ID mapping is enabled without the cache.
+        :raises ValueError: If an enabled feature is missing a required service or credential.
         """
+        if self.ENABLE_DATABASE and not self.DATABASE_URL:
+            raise ValueError("ENABLE_DATABASE requires DATABASE_URL")
         if self.ENABLE_ID_MAPPING and not self.ENABLE_CACHE:
             raise ValueError("ENABLE_ID_MAPPING requires ENABLE_CACHE")
+        if self.ENABLE_LIVE_PUSH and not self.ENABLE_DATABASE:
+            raise ValueError("ENABLE_LIVE_PUSH requires ENABLE_DATABASE")
+        if self.ENABLE_LIVE_PUSH and not self.API_KEYS:
+            raise ValueError("ENABLE_LIVE_PUSH requires API_KEYS")
         return self
 
     @property
     def needs_redis(self) -> bool:
         """Return whether an enabled feature needs Redis."""
-        return self.ENABLE_CACHE or self.ENABLE_LIVE_PUSH
+        return self.ENABLE_CACHE or self.ENABLE_LIVE_PUSH or self.LLM_RATE_LIMIT_ENABLED
 
 
 settings = Settings()

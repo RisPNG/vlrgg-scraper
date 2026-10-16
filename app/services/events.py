@@ -3,9 +3,8 @@ import http
 import itertools
 import logging
 import re
-from datetime import datetime
+from datetime import tzinfo
 from typing import NotRequired, TypedDict, cast
-from zoneinfo import ZoneInfo
 
 import dateutil.parser
 from bs4 import BeautifulSoup, Tag
@@ -16,7 +15,15 @@ from app import cache, constants, schemas
 from app.core.config import settings
 from app.core.connections import get_http_client
 from app.exceptions import BadRequestError, ScrapingError
-from app.utils import clean_number_string, clean_string, get_class, get_href, get_image_url, simplify_name
+from app.utils import (
+    clean_number_string,
+    clean_string,
+    get_class,
+    get_href,
+    get_image_url,
+    parse_match_datetime,
+    simplify_name,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,9 +193,7 @@ async def parse_event(event: Tag, client: Redis) -> schemas.Event:
     try:
         status = constants.EventStatus(raw_status)
     except ValueError:
-        logger.warning(
-            "Unknown VLR event status %r for event_id=%s; falling back to UNKNOWN", raw_status, event_id
-        )
+        logger.warning("Unknown VLR event status %r for event_id=%s; falling back to UNKNOWN", raw_status, event_id)
         status = constants.EventStatus.UNKNOWN
     prize = event.find("div", class_="mod-prize").get_text().strip().replace("\t", "").split("\n")[0]
     dates = event.find("div", class_="mod-dates").get_text().strip().replace("\t", "").split("\n")[0]
@@ -271,9 +276,7 @@ async def parse_events_data(id: str, cache_client: Redis | None = None) -> Parse
     # flat event-desc-item-value siblings became label/value pairs under
     # event-header-main-meta. Support both layouts (new first, old fallback).
     event["title"] = get_event_title(header)
-    subtitle_tag = header.find("h2", class_="event-header-main-desc") or header.find(
-        "h2", class_="event-desc-subtitle"
-    )
+    subtitle_tag = header.find("h2", class_="event-header-main-desc") or header.find("h2", class_="event-desc-subtitle")
     event["subtitle"] = clean_string(subtitle_tag.get_text()) if subtitle_tag else ""
 
     if meta := header.find("div", class_="event-header-main-meta"):
@@ -356,17 +359,12 @@ async def parse_match_data(id: str) -> list:
             raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
 
     soup = BeautifulSoup(response.content, "lxml")
-    return list(
-        itertools.chain(
-            *(
-                match_parser(
-                    soup.find_all("div", class_="wf-card")[day + 1],
-                    clean_string(date.get_text()),
-                )
-                for (day, date) in enumerate(soup.find_all("div", class_="wf-label mod-large"))
-            )
-        )
-    )
+    return [
+        match
+        for date in soup.find_all("div", class_="wf-label mod-large")
+        if (day_matches := date.find_next_sibling("div", class_="wf-card")) is not None
+        for match in match_parser(day_matches, clean_string(date.get_text()), response.extensions.get("vlr_timezone"))
+    ]
 
 
 def parse_prizes(soup: BeautifulSoup) -> list[dict[str, str | dict[str, str]]]:
@@ -465,7 +463,7 @@ def prizes_parser(prizes_table: Tag) -> list[dict[str, str | dict[str, str]]]:
     return prizes
 
 
-def match_parser(day_matches: Tag, date: str) -> list[dict[str, str | list[str]]]:
+def match_parser(day_matches: Tag, date: str, source_timezone: tzinfo | None = None) -> list[dict]:
     """
     Parse match data
     :param day_matches: The HTML
@@ -473,19 +471,16 @@ def match_parser(day_matches: Tag, date: str) -> list[dict[str, str | list[str]]
     :return: The parsed data as a list
     """
     matches = []
+    date = date.lower().replace("yesterday", "").replace("today", "")
     for match_data in day_matches.find_all("a", class_="match-item"):
-        time = match_data.find("div", class_="match-item-time").get_text().strip()
-        match_timing: datetime | None = None
-        date = date.lower().replace("yesterday", "").replace("today", "")
-        if constants.TBD not in time.lower():
-            match_timing = (
-                dateutil.parser.parse(
-                    f"{date} {time}",
-                    ignoretz=True,
-                )
-                .replace(tzinfo=ZoneInfo(settings.TIMEZONE))
-                .astimezone(ZoneInfo("UTC"))
-            )
+        time_element = match_data.find("div", class_="match-item-time")
+        time = time_element.get_text(strip=True) if time_element is not None else ""
+        timestamp_element = match_data.find(attrs={"data-utc-ts": True})
+        match_timing = parse_match_datetime(
+            f"{date} {time}",
+            str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+            source_timezone,
+        )
         match = {
             "id": get_href(match_data["href"]).split("/")[1],
             "status": match_data.find("div", class_="ml-status").get_text().strip().lower(),
@@ -496,7 +491,7 @@ def match_parser(day_matches: Tag, date: str) -> list[dict[str, str | list[str]]
                 "time": match_timing.time().isoformat(),
             }
         else:
-            match |= {"date": dateutil.parser.parse(date, ignoretz=True), "time": time}
+            match |= {"date": dateutil.parser.parse(date).date(), "time": None}
         team_data = []
         for team in match_data.find_all("div", class_="match-item-vs-team"):
             data = {

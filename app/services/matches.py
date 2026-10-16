@@ -2,10 +2,9 @@ import asyncio
 import http
 import re
 from asyncio import gather
-from datetime import datetime
+from datetime import tzinfo
 from itertools import chain
 
-import dateutil.parser
 from bs4 import BeautifulSoup, Tag
 from bs4.element import ResultSet
 from redis.asyncio import Redis
@@ -18,9 +17,9 @@ from app.utils import (
     clean_number_string,
     clean_string,
     expand_url,
-    fix_datetime_tz,
     get_href,
     get_image_url,
+    parse_match_datetime,
     simplify_name,
 )
 
@@ -49,7 +48,7 @@ async def match_by_id(id: str, redis_client: Redis | None) -> schemas.MatchWithD
     soup = BeautifulSoup(response.content, "lxml")
 
     bans = get_ban_data(soup.find_all("div", class_="match-header-note"))
-    event = get_event_data(soup)
+    event = get_event_data(soup, response.extensions.get("vlr_timezone"))
     video_data = get_video_data(soup)
     map_ret = get_map_data(soup.find_all("div", class_="vm-stats"))
     h2h_matches = get_previous_encounters_data(soup.find("div", class_="wf-card match-h2h"))
@@ -59,6 +58,7 @@ async def match_by_id(id: str, redis_client: Redis | None) -> schemas.MatchWithD
         for team, tag in zip(teams, rounds.find_all("div", class_="team")):
             team["tag"] = clean_string(tag.get_text()) or None
     return schemas.MatchWithDetails(
+        id=id,
         teams=teams,
         bans=bans,
         veto=parse_veto(bans),
@@ -67,6 +67,7 @@ async def match_by_id(id: str, redis_client: Redis | None) -> schemas.MatchWithD
         data=map_ret[0],
         map_count=map_ret[1],
         total_maps=get_total_maps(soup),
+        best_of=get_best_of(soup),
         previous_encounters=h2h_matches,
     )
 
@@ -149,7 +150,7 @@ def parse_veto(bans: list[str]) -> list[schemas.Veto]:
     return steps
 
 
-def get_event_data(soup: BeautifulSoup) -> dict:
+def get_event_data(soup: BeautifulSoup, source_timezone: tzinfo | None = None) -> dict:
     """
     Function to extract event data from a match page on VLR
     :param soup: The page
@@ -157,13 +158,13 @@ def get_event_data(soup: BeautifulSoup) -> dict:
     """
     event_data = soup.find("div", class_="match-header-super")
     event_link = event_data.find("a", class_="match-header-event")
-    event_date: datetime | None = None
-    if (
-        date_str := " ".join(
-            [data.get_text().strip() for data in soup.find_all("div", class_="moment-tz-convert")]
-        ).strip()
-    ) and constants.TBD not in date_str.lower():
-        event_date = fix_datetime_tz(dateutil.parser.parse(date_str, ignoretz=True))
+    date_elements = soup.select(".match-header-date .moment-tz-convert") or soup.select(".moment-tz-convert")
+    timestamp_element = next((element for element in date_elements if element.get("data-utc-ts")), None)
+    event_date = parse_match_datetime(
+        " ".join(element.get_text(" ", strip=True) for element in date_elements),
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+        source_timezone,
+    )
 
     if soup.find("span", class_="match-header-vs-note mod-upcoming"):
         status = "upcoming"
@@ -467,19 +468,25 @@ def get_previous_encounters_data(data: Tag) -> list[dict]:
     return response
 
 
-async def match_list(redis_client: Redis) -> list[schemas.Match]:
+async def match_list(
+    redis_client: Redis, completed_pages: int = 1, include_completed: bool = True
+) -> list[schemas.Match]:
     """
     Function to parse a list of matches from the VLR.gg homepage
 
     :param redis_client: A redis instance
+    :param completed_pages: Number of completed history pages, or <= 0 for all.
+    :param include_completed: Whether to fetch completed history alongside upcoming matches.
     :return: The parsed matches
     """
+    if not include_completed:
+        return await get_upcoming_matches(redis_client)
     return list(
         chain(
             *(
                 await gather(
                     get_upcoming_matches(redis_client),
-                    get_completed_matches(redis_client),
+                    get_completed_matches(redis_client, pages=completed_pages),
                 )
             )
         )
@@ -506,6 +513,7 @@ async def get_upcoming_matches(redis_client: Redis) -> list[schemas.Match]:
         upcoming_matches.find_all("div", class_="wf-label"),
         upcoming_matches.find_all("div", class_="wf-card"),
         redis_client,
+        upcoming_matches_response.extensions.get("vlr_timezone"),
     )
 
 
@@ -525,14 +533,25 @@ def count_result_cards(content: bytes) -> int:
     return sum(len(card.find_all("a", class_="wf-module-item")) for card in soup.find_all("div", class_="wf-card"))
 
 
-async def parse_results_page(content: bytes, redis_client: Redis) -> list[schemas.Match]:
+async def parse_results_page(
+    content: bytes, redis_client: Redis, source_timezone: tzinfo | None = None
+) -> list[schemas.Match]:
     """Parse all completed-match cards from a single results page of HTML."""
     soup = BeautifulSoup(content, "lxml")
     return await parse_matches(
         soup.find_all("div", class_="wf-label"),
         soup.find_all("div", class_="wf-card"),
         redis_client,
+        source_timezone,
     )
+
+
+async def get_completed_matches_page(redis_client: Redis, page: int = 1) -> list[schemas.Match]:
+    async with get_http_client() as client:
+        response = await client.get(completed_matches_url(page))
+        if response.status_code != http.HTTPStatus.OK:
+            raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
+    return await parse_results_page(response.content, redis_client, response.extensions.get("vlr_timezone"))
 
 
 async def get_completed_matches(redis_client: Redis, pages: int = 1) -> list[schemas.Match]:
@@ -554,7 +573,9 @@ async def get_completed_matches(redis_client: Redis, pages: int = 1) -> list[sch
             )
 
         # Page 1 has been fetched above; grab any additional pages while the client is open.
-        results = await parse_results_page(previous_matches_response.content, redis_client)
+        results = await parse_results_page(
+            previous_matches_response.content, redis_client, previous_matches_response.extensions.get("vlr_timezone")
+        )
         if results and pages != 1:
             seen: set[str] = {m.id for m in results}
             # Clamp bounded mode; full-history mode cap is enforced inside the helper.
@@ -598,7 +619,9 @@ async def fetch_additional_completed_matches(
                 if not count_result_cards(response.content):
                     stop = True
                     break
-                page_matches = await parse_results_page(response.content, redis_client)
+                page_matches = await parse_results_page(
+                    response.content, redis_client, response.extensions.get("vlr_timezone")
+                )
                 new = [m for m in page_matches if m.id not in seen]
                 seen.update(m.id for m in new)
                 matches.extend(new)
@@ -626,7 +649,9 @@ async def fetch_additional_completed_matches(
             if not count_result_cards(response.content):
                 stop = True
                 break
-            page_matches = await parse_results_page(response.content, redis_client)
+            page_matches = await parse_results_page(
+                response.content, redis_client, response.extensions.get("vlr_timezone")
+            )
             if page_matches:
                 # Only apply dedup-stop when we have parsed results: if ALL are duplicates the
                 # upstream is looping and we should terminate.  If page_matches is [] (parse failure)
@@ -644,7 +669,9 @@ async def fetch_additional_completed_matches(
     return matches
 
 
-async def parse_matches(dates: ResultSet, match_data: ResultSet, client: Redis) -> list[schemas.Match]:
+async def parse_matches(
+    dates: ResultSet, match_data: ResultSet, client: Redis, source_timezone: tzinfo | None = None
+) -> list[schemas.Match]:
     """
     Function to parse a list of matches
 
@@ -710,6 +737,7 @@ async def parse_matches(dates: ResultSet, match_data: ResultSet, client: Redis) 
                     event_id_map,
                     semaphore,
                     client,
+                    source_timezone,
                 )
                 for date, match_info, team1_name, team2_name, event_name in parsed_entries
             )
@@ -740,6 +768,7 @@ async def parse_match(
     event_id_map: dict[str, str | None],
     semaphore: asyncio.Semaphore,
     client: Redis,
+    source_timezone: tzinfo | None = None,
 ) -> schemas.Match | None:
     """
     Function to parse a given match, using pre-fetched ID maps.
@@ -759,11 +788,14 @@ async def parse_match(
     team_scores = match_info.find_all("div", class_="match-item-vs-team-score")
     status = match_info.find("div", class_="ml-status").get_text().strip().lower()
     parsed_date = clean_string(date.get_text().split("\n")[1])
-    time = clean_string(match_info.find("div", class_="match-item-time").get_text())
-    if time.lower() == constants.TBD:
-        date_string = parsed_date
-    else:
-        date_string = parsed_date + " " + time
+    time_element = match_info.find("div", class_="match-item-time")
+    time = clean_string(time_element.get_text()) if time_element is not None else ""
+    timestamp_element = match_info.find(attrs={"data-utc-ts": True})
+    start_time = parse_match_datetime(
+        f"{parsed_date} {time}",
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+        source_timezone,
+    )
 
     team1_id = team2_id = event_id = None
     if settings.ENABLE_ID_MAPPING:
@@ -815,7 +847,7 @@ async def parse_match(
         team1=schemas.MatchTeam(name=team1_name, id=team1_id, score=score1),
         team2=schemas.MatchTeam(name=team2_name, id=team2_id, score=score2),
         status=status,
-        time=fix_datetime_tz(dateutil.parser.parse(date_string, ignoretz=True)),  # type: ignore
+        time=start_time,
         id=match_id,
         event=event_name,
         series=clean_string(match_info.find("div", class_="match-item-event-series").get_text()),
@@ -834,15 +866,21 @@ def parse_score(data: Tag) -> int | None:
     return None
 
 
+def get_best_of(soup: BeautifulSoup) -> int | None:
+    for note in soup.find_all(class_="match-header-vs-note"):
+        if match := re.search(r"\b(?:bo\s*|best\s+of\s+)([1-9][0-9]*)\b", note.get_text(), re.IGNORECASE):
+            return int(match.group(1))
+    return None
+
+
 def get_total_maps(soup: BeautifulSoup) -> int:
     """Determine the maximum number of maps in the series (e.g. 1, 3, or 5).
 
     :param soup: Match page BeautifulSoup.
     :return: Total maps scheduled for the match.
     """
-    for note in soup.find_all("div", class_="match-header-vs-note"):
-        if match := re.search(r"bo(\d+)", note.get_text(), re.IGNORECASE):
-            return int(match.group(1))
+    if best_of := get_best_of(soup):
+        return best_of
     nav = soup.find_all(class_="vm-stats-gamesnav-item")
     total = sum(1 for item in nav if item.get("data-game-id") != "all")
     return total or 1

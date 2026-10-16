@@ -7,7 +7,6 @@ from arq import cron
 from arq.worker import create_worker
 
 from app.core.config import settings
-from app.services.fcm import close_app
 
 logger = logging.getLogger(__name__)
 _ARQ_RESTART_DELAY = 5
@@ -42,14 +41,15 @@ class ArqWorker:
                     cron("app.cron.jobs.events_cron", hour=None, minute={0, 30}),
                     cron("app.cron.jobs.news_cron", hour=None, minute={0, 30}),
                     cron("app.cron.jobs.standings_cron", hour=0, minute=0),
-                    cron("app.cron.team_rankings.team_rankings_cron", hour=None, minute={10, 25, 40, 55}),
                 ]
             )
+            if settings.ENABLE_DATABASE:
+                cron_jobs.append(cron("app.cron.team_rankings.team_rankings_cron", hour=None, minute={10, 25, 40, 55}))
 
         # Only try to run the FCM cron if we have a service account JSON
-        if settings.ENABLE_CACHE and settings.GOOGLE_APPLICATION_CREDENTIALS is not None:
+        if settings.ENABLE_CACHE and settings.GOOGLE_APPLICATION_CREDENTIALS:
             cron_jobs.append(cron("app.cron.legacy_fcm.fcm_notification_cron", hour=None, minute={0, 15, 30, 45}))
-        if settings.ENABLE_ID_MAPPING:
+        if settings.ENABLE_DATABASE and settings.ENABLE_ID_MAPPING:
             cron_jobs.append(cron("app.cron.favorite_players.favorite_players_cron", hour=None, minute={10, 40}))
         if settings.ENABLE_LIVE_PUSH:
             # Every minute; the fixed job_id makes arq skip a run while the previous one is still going.
@@ -89,7 +89,10 @@ class ArqWorker:
         if self.task:
             self.task.cancel()
             await asyncio.gather(self.task, return_exceptions=True)
-        await close_app()
+        if settings.ENABLE_LIVE_PUSH or (settings.ENABLE_CACHE and settings.GOOGLE_APPLICATION_CREDENTIALS):
+            from app.services.fcm import close_app
+
+            await close_app()
 
 
 arq_worker = ArqWorker()

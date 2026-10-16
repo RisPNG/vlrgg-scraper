@@ -1,7 +1,9 @@
 import asyncio
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
+from zoneinfo import ZoneInfo
 
 import pytest
 from bs4 import BeautifulSoup
@@ -24,6 +26,8 @@ async def test_match_details_follow_the_public_response_contract(http_response):
     assert result.event.id == "2283"
     assert result.event.series == "Event Series"
     assert result.event.patch == "13.05"
+    assert result.id == "12345"
+    assert result.best_of is None
     assert result.map_count == 2
     assert [(item.number, item.map, [team.score for team in item.teams], item.winner) for item in result.data] == [
         (1, "Lotus", [13, 10], "Team A"),
@@ -68,6 +72,51 @@ async def test_match_details_follow_the_public_response_contract(http_response):
         upcoming_result = await matches.match_by_id("12345", AsyncMock())
 
     assert upcoming_result.data == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("format_note", "best_of"), [("Bo5", 5), ("Best of 3", 3), ("", None)])
+async def test_match_format_is_known_only_from_the_scheduled_format(format_note, best_of, http_response):
+    soup = BeautifulSoup((FIXTURE_DIR / "match_12345.html").read_bytes(), "lxml")
+    note = soup.new_tag("span", attrs={"class": "match-header-vs-note"})
+    note.string = format_note
+    soup.body.append(note)
+    response = http_response("https://www.vlr.gg/12345", str(soup).encode())
+
+    with patch("httpx2.AsyncClient.get", return_value=response):
+        result = await matches.match_by_id("12345", None)
+
+    assert result.best_of == best_of
+    assert result.total_maps == (best_of or 3)
+    assert result.event.status == "completed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("timestamp", "visible", "expected"),
+    [
+        ("2026-06-25 13:00:00", "Friday, June 26 1:00 AM +08", datetime(2026, 6, 25, 17, tzinfo=UTC)),
+        ("1778166000", "Thursday, May 7 8:30 PM IST", datetime(2026, 5, 7, 15, tzinfo=UTC)),
+        (None, "October 1, 2025 10:00 PM +02:00", datetime(2025, 10, 1, 20, tzinfo=UTC)),
+        ("2026-06-25 00:00:00", "Friday, June 26 TBD", None),
+    ],
+    ids=["new-york-machine-time", "unix-machine-time", "explicit-offset", "unannounced-time"],
+)
+async def test_match_start_time_preserves_the_instant_or_unknown(
+    timestamp, visible, expected, monkeypatch, http_response
+):
+    monkeypatch.setattr("app.utils._TZ_LOCAL", ZoneInfo("Asia/Kuala_Lumpur"))
+    soup = BeautifulSoup((FIXTURE_DIR / "match_12345.html").read_bytes(), "lxml")
+    timing = soup.select_one(".moment-tz-convert")
+    timing.string = visible
+    if timestamp is not None:
+        timing["data-utc-ts"] = timestamp
+    response = http_response("https://www.vlr.gg/12345", str(soup).encode())
+
+    with patch("httpx2.AsyncClient.get", return_value=response):
+        result = await matches.match_by_id("12345", AsyncMock())
+
+    assert result.event.date == expected
 
 
 @pytest.mark.asyncio
@@ -167,6 +216,7 @@ def test_unreachable_vlr_returns_503(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_match_list_keeps_each_upcoming_date_group(monkeypatch, http_response):
+    monkeypatch.setattr("app.utils._TZ_LOCAL", ZoneInfo("UTC"))
     responses = {
         constants.UPCOMING_MATCHES_URL: http_response(
             constants.UPCOMING_MATCHES_URL, (FIXTURE_DIR / "matches.html").read_bytes()
@@ -184,6 +234,34 @@ async def test_match_list_keeps_each_upcoming_date_group(monkeypatch, http_respo
     assert names["684611"] == ("FULL SENSE", "FUT Esports")
     assert names["684612"] == ("LEVIATÁN", "Global Esports")
     assert names["684610"] == ("Team Vitality", "Dragon Ranger Gaming")
+    starts = {match.id: match.time for match in result}
+    assert starts["684611"] == datetime(2026, 6, 7, 19, 30, tzinfo=UTC)
+    assert starts["684614"].date().isoformat() == "2026-06-08"
+
+    soup = BeautifulSoup((FIXTURE_DIR / "matches.html").read_bytes(), "lxml")
+    cards = soup.select("a.match-item")
+    cards[0].select_one(".match-item-time").string = "TBD"
+    cards[1].select_one(".match-item-time").decompose()
+    cards[2].select_one(".match-item-time").string = "12:00 AM"
+    responses[constants.UPCOMING_MATCHES_URL] = http_response(constants.UPCOMING_MATCHES_URL, str(soup).encode())
+    with patch("httpx2.AsyncClient.get", side_effect=lambda url, *_args, **_kwargs: responses[url]):
+        updated = await matches.match_list(AsyncMock())
+
+    starts = {match.id: match.time for match in updated}
+    assert starts["684611"] is None
+    assert starts["684612"] is None
+    assert starts["684614"] == datetime(2026, 6, 8, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_global_schedule_can_skip_completed_history(http_response):
+    response = http_response(constants.UPCOMING_MATCHES_URL, (FIXTURE_DIR / "matches.html").read_bytes())
+    with patch("httpx2.AsyncClient.get", return_value=response) as get:
+        result = await matches.match_list(None, include_completed=False)
+
+    assert {match.id for match in result} >= {"684611", "684612"}
+    assert all(match.status != "completed" for match in result)
+    get.assert_called_once_with(constants.UPCOMING_MATCHES_URL)
 
 
 @pytest.mark.asyncio

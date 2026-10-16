@@ -1,6 +1,7 @@
 """Select live, upcoming and recently completed matches for a client's stored favorites."""
 
 from datetime import UTC, datetime
+from typing import cast
 
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,7 +39,7 @@ async def favorite_matches(
     listed = schemas.MatchListAdapter.validate_json(data)
     active = sorted(
         (match for match in listed if is_live(match.status) or match.status == MatchStatus.UPCOMING),
-        key=lambda match: (not is_live(match.status), match.time),
+        key=lambda match: (not is_live(match.status), match.time is None, match.time),
     )
     player_teams = await scrape_store.player_team_ids(session, favorites.players)
     team_ids = [*favorites.teams, *(team_id for team_id in player_teams.values() if team_id)]
@@ -46,8 +47,12 @@ async def favorite_matches(
     if include_results:
         since = datetime.now(UTC) - constants.FAVORITE_RESULTS_WINDOW
         results = sorted(
-            (match for match in listed if match.status == MatchStatus.COMPLETED and match.time >= since),
-            key=lambda match: match.time,
+            (
+                match
+                for match in listed
+                if match.status == MatchStatus.COMPLETED and match.time is not None and match.time >= since
+            ),
+            key=lambda match: cast(datetime, match.time),
             reverse=True,
         )
         selected += _select(results, favorites, team_ids)

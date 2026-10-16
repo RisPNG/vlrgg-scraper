@@ -2,6 +2,8 @@
 
 The application uses arq for background job scheduling to periodically update cached data.
 
+No worker starts in the default stateless configuration. Cache jobs require `ENABLE_CACHE=true` and Redis. Historical team-ranking ingestion also requires `ENABLE_DATABASE=true`; ID-mapping player ingestion requires both database and ID mapping. Live-push jobs require `ENABLE_LIVE_PUSH=true` and the `push` extra. Legacy topic notifications retain their original trigger: caching plus `GOOGLE_APPLICATION_CREDENTIALS`, with the `push` extra installed. Redis caching alone does not enable PostgreSQL ingestion.
+
 ## Overview
 
 - **Framework**: arq (Redis-based job queue)

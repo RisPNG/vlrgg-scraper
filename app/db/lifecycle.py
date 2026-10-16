@@ -1,5 +1,7 @@
 """Startup and shutdown for the database, independent of live push."""
 
+from typing import cast
+
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.core import connections
@@ -12,8 +14,9 @@ async def start_database() -> None:
 
     :return: None.
     """
-    await upgrade_to_head(settings.DATABASE_URL)
-    connections.database_engine = create_async_engine(settings.DATABASE_URL)
+    database_url = cast(str, settings.DATABASE_URL)
+    await upgrade_to_head(database_url)
+    connections.database_engine = create_async_engine(database_url)
     connections.subscription_sessions = async_sessionmaker(connections.database_engine, expire_on_commit=False)
 
 

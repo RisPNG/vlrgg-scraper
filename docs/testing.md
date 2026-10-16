@@ -37,9 +37,9 @@ variations that merely repeat the same contract.
 
 ## Commands
 
-Database tests create and drop a scratch database per test on the server at
-`TEST_DATABASE_URL` (default `postgresql:///postgres`, the local socket as the current
-user), so that role needs `CREATEDB`.
+The default suite tests the stateless installation. Tests requiring unavailable optional dependencies are excluded from collection. Individual database tests skip unless `TEST_DATABASE_URL` is explicitly set, so an ordinary test run never connects to a host database.
+
+To test database-backed features, install all extras and set `ENABLE_DATABASE=true`, `DATABASE_URL`, and `TEST_DATABASE_URL`. The latter must point to a disposable PostgreSQL server whose role has `CREATEDB`: each database test creates and drops its own scratch database. An explicitly configured connection failure remains a test failure. Keep `ENABLE_CACHE=false` and `ENABLE_LIVE_PUSH=false` when testing the default application; feature tests register their own routers and mock their external services.
 
 ```bash
 uv run pytest -m "not live_golden and not live_health"
@@ -47,6 +47,8 @@ uv run pytest -m live_health tests/live
 uv run pytest -m live_golden tests/golden
 uv run pytest tests/test_news.py
 ```
+
+CI runs both the base installation and the all-extras suite against a disposable PostgreSQL service. The application lifecycle tests verify the production app serves real HTML fixtures and closes its HTTP client without any database or Redis service. Calendar fixtures also verify canonical VLR timestamps, explicit offsets, and unknown start times.
 
 Run Ruff before committing:
 

@@ -2,6 +2,8 @@
 
 An unofficial FastAPI-based scraper for [vlr.gg](https://www.vlr.gg), providing Valorant esports data in a machine-readable JSON format.
 
+The `dbless` branch runs as a stateless scraping API. Its default installation needs no PostgreSQL, Redis service, Firebase credentials, or environment variables. It fetches VLR data on request and retains no scraped history or subscriptions. Database-backed features remain available through optional dependencies and explicit configuration.
+
 ## Features
 
 - **Comprehensive Data**: Scrapes events, matches, teams, players, rankings, standings, and news from vlr.gg
@@ -23,6 +25,7 @@ The running server documents every endpoint at `/docs` (Swagger UI), `/redoc`, a
 - [News Media](docs/news-media.md): news article content and media
 - [Standings](docs/standings.md): VCT standings
 - [Testing](docs/testing.md): test layout and commands
+- [Render and upstream updates](docs/render.md): database-free deployment and fork maintenance
 
 ## Quick Start
 
@@ -30,7 +33,6 @@ The running server documents every endpoint at `/docs` (Swagger UI), `/redoc`, a
 
 - Python 3.14+
 - [uv](https://astral.sh/uv) for dependency management
-- PostgreSQL 16+ (the app, and the tests' scratch databases)
 
 ### Installation
 
@@ -41,7 +43,7 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 # Clone and install dependencies
 git clone <repo-url>
 cd vlrgg-scraper
-uv sync
+uv sync --frozen
 ```
 
 ### Development
@@ -66,21 +68,24 @@ Live checks against vlr.gg and more commands are in [docs/testing.md](docs/testi
 
 Environment variables (see `app/core/config.py`):
 
-- `REDIS_HOST`: Redis server host
-- `REDIS_PASSWORD`: Redis password
+- `API_KEYS`: Optional JSON object mapping client names to bearer tokens. When empty, scraping endpoints are public. `/health` remains public.
+- `REDIS_HOST`: Redis server host when a Redis-backed feature is enabled (default `localhost`)
+- `REDIS_PASSWORD`: Optional Redis password
 - `ENABLE_CACHE`: Cache VLR responses in Redis and run the cache crons (default `false`)
-- `ENABLE_ID_MAPPING`: Resolve team and event IDs in match lists through Redis; requires `ENABLE_CACHE`, and enables the favorites endpoint and players cron (default `false`)
-- `ENABLE_LIVE_PUSH`: Enable the live push cron and client endpoints (default `false`)
+- `ENABLE_ID_MAPPING`: Resolve team and event IDs in match lists through Redis; requires `ENABLE_CACHE` (default `false`). Favorites and player ingestion also require `ENABLE_DATABASE`.
+- `ENABLE_DATABASE`: Enable PostgreSQL startup, migrations, stored rankings, and database-backed features (default `false`). Install `uv sync --frozen --extra database` and set `DATABASE_URL` first.
+- `ENABLE_LIVE_PUSH`: Enable live-push jobs and client endpoints (default `false`). Requires `uv sync --frozen --extra push`, `ENABLE_DATABASE`, and `API_KEYS`.
 - `APNS_CREDENTIALS_FILE`: Path to the APNs credential JSON file
-- `DATABASE_URL`: PostgreSQL database (default `postgresql+asyncpg:///vlrgg`, the local socket as the current user)
-- `INTERNAL_API_KEY`: API key for internal endpoints
-- `TIMEZONE`: Server timezone
+- `DATABASE_URL`: PostgreSQL connection URL, required only with `ENABLE_DATABASE=true`, using the `postgresql+asyncpg://` scheme
+- `INTERNAL_API_KEY`: Optional key exposing internal cache endpoints when ID mapping is enabled
+- `DETECT_SOURCE_TIMEZONE`: Detect VLR's rendered source timezone once per HTTP client (default `true`). The first rendered-only match list may fetch one representative detail page; subsequent endpoints reuse the observed zone. Requests fail if the source zone cannot be established.
+- `TIMEZONE`: Explicit source timezone for rendered dates when `DETECT_SOURCE_TIMEZONE=false` (default `America/New_York`). Set it only after checking VLR's actual rendered zone for the service's outbound location. Machine timestamps and explicit offsets are interpreted independently of this setting.
+- `VLR_REQUEST_INTERVAL_SECONDS`: Minimum spacing between VLR request starts in the shared client (default `1`, minimum `0`). Concurrent API calls share this pacing within one worker process. This courtesy interval is not a verified VLR quota.
 - `GOOGLE_APPLICATION_CREDENTIALS`: Path to Firebase credentials (for notifications)
 
-Startup applies the Alembic migrations automatically. Back up with
-`pg_dump -Fc vlrgg > backups/vlrgg-$(date -u +%Y%m%dT%H%M%SZ).dump`.
-See [docs/postgres.md](docs/postgres.md) for server setup, the SQLite cutover,
-and read-only access for contributors.
+PostgreSQL initialization and Alembic migrations run only with `ENABLE_DATABASE=true`. The default API omits favorites, client tokens, live push, and database-backed `/api/v2/rankings` routes. Enabling Redis caching alone does not ingest PostgreSQL history. See [docs/postgres.md](docs/postgres.md) for optional database setup and backups.
+
+The optional question-answering endpoint requires `uv sync --frozen --extra agent` and `LLM_API_KEY`. It can query the stateless scraper without a database. Its optional rate limiter requires Redis.
 
 ## Deployment
 

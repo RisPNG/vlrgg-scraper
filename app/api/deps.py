@@ -6,15 +6,11 @@ from typing import Annotated
 from fastapi import Depends, Header, Path, Response
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from redis.asyncio import Redis
-from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.cache import get_client
 from app.constants import ID_REGEX
-from app.core import connections
 from app.core.config import settings
 from app.exceptions import ServiceUnavailableError, UnauthorizedError
-from app.services.subscription_store import SubscriptionStore
 
 http_bearer = HTTPBearer()
 
@@ -56,39 +52,9 @@ def require_live_push() -> None:
         raise ServiceUnavailableError("Live updates are disabled")
 
 
-async def get_subscription_session() -> AsyncGenerator[AsyncSession]:
-    """Yield one request transaction, committed on success and rolled back on error.
-
-    :return: Request-scoped session.
-    :raises ServiceUnavailableError: If the store is absent or fails.
-    """
-    sessions = connections.subscription_sessions
-    if sessions is None:
-        raise ServiceUnavailableError("Database is unavailable")
-    try:
-        async with sessions.begin() as session:
-            yield session
-    except SQLAlchemyError as exc:
-        raise ServiceUnavailableError("Subscription store is unavailable") from exc
-
-
-# Function scope commits before the response is sent, so a failed commit returns 503, not 2xx.
-DatabaseSessionDep = Annotated[AsyncSession, Depends(get_subscription_session, scope="function")]
-
-
-def get_subscription_store(session: DatabaseSessionDep) -> SubscriptionStore:
-    """Bind a subscription store to the request session.
-
-    :param session: Request-scoped database session.
-    :return: Subscription store.
-    """
-    return SubscriptionStore(session)
-
-
 MatchId = Annotated[str, Path(pattern=r"^\d{1,10}$")]
 TeamId = Annotated[str, Path(pattern=ID_REGEX)]
 RedisDep = Annotated[Redis, Depends(get_redis_client)]
-SubscriptionStoreDep = Annotated[SubscriptionStore, Depends(get_subscription_store)]
 
 
 def set_no_store(response: Response) -> None:

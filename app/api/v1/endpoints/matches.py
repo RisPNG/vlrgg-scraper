@@ -1,4 +1,6 @@
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Query
 
 from app import cache, constants, schemas
 from app.api import deps
@@ -8,10 +10,24 @@ router = APIRouter()
 
 
 @router.get("/")
-async def get_matches(client: deps.RedisDep) -> list[schemas.Match]:
-    if data := await cache.get("matches", client=client):
+async def get_matches(
+    client: deps.RedisDep,
+    completed_pages: Annotated[int, Query(description="Completed history pages; <= 0 fetches all.")] = 1,
+    include_completed: bool = True,
+) -> list[schemas.Match]:
+    if include_completed and completed_pages == 1 and (data := await cache.get("matches", client=client)):
         return schemas.MatchListAdapter.validate_json(data)
-    return await matches.match_list(redis_client=client)
+    return await matches.match_list(
+        redis_client=client, completed_pages=completed_pages, include_completed=include_completed
+    )
+
+
+@router.get("/completed")
+async def get_completed_matches_page(
+    client: deps.RedisDep,
+    page: Annotated[int, Query(ge=1, le=constants.MAX_PAGINATION_PAGES)] = 1,
+) -> list[schemas.Match]:
+    return await matches.get_completed_matches_page(client, page)
 
 
 @router.get("/{id}")

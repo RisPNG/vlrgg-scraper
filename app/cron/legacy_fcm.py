@@ -7,6 +7,7 @@ scores go directly to registration tokens (see app/services/fcm.py) and these st
 import asyncio
 import logging
 from datetime import datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from firebase_admin import messaging
@@ -34,7 +35,9 @@ async def fcm_notification_cron(ctx: dict) -> None:
     upcoming_matches = [
         match
         for match in await matches.get_upcoming_matches(redis_client=client)
-        if match.status == MatchStatus.UPCOMING and 0 < (match.time - current_time).total_seconds() < 900
+        if match.status == MatchStatus.UPCOMING
+        and match.time is not None
+        and 0 < (match.time - current_time).total_seconds() < 900
     ]
 
     if not upcoming_matches:
@@ -54,16 +57,17 @@ async def fcm_notification_cron(ctx: dict) -> None:
             capture_exception(match_details)
             logger.warning(f"Failed to fetch match details for {match.id}: {match_details}")
             continue
+        start_time = cast(datetime, match.time)
 
         logger.info(f"Sending notification for {match=}")
 
         team1_id, team2_id = (team.id for team in match_details.teams)
-        time_to_start = int((match.time - current_time).total_seconds() // 60)
+        time_to_start = int((start_time - current_time).total_seconds() // 60)
 
         payload = {
             "title": f"{match.team1.name} vs {match.team2.name}",
             "body": f"Match is starting in {time_to_start} minutes",
-            "timestamp": match.time.isoformat(),
+            "timestamp": start_time.isoformat(),
             "match_id": match.id,
         }
         if streams := match_details.videos.streams:

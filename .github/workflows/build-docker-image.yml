@@ -1,18 +1,30 @@
-on:
-  push:
-    branches:
-      - master
+name: Build container
 
-name: Build and push docker image to container registry
+on:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
-      - name: Login to container registry
-        run: echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io --username akhilnarang --password-stdin
-      - name: Build and push image
-        run: docker buildx build --platform linux/amd64,linux/arm64 --build-arg GIT_SHA=${{ github.sha }} -t ghcr.io/akhilnarang/vlrgg-scraper:master . --push
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Build the production container
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          platforms: linux/amd64
+          build-args: GIT_SHA=${{ inputs.ref || github.sha }}

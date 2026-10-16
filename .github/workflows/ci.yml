@@ -2,14 +2,84 @@ name: CI
 
 on:
   push:
-    branches: [ master ]
+    branches: [dbless]
   pull_request:
-    branches: [ master ]
+    branches: [dbless]
+  workflow_dispatch:
+    inputs:
+      base-ref:
+        description: Previous Redis deployment commit, required for schema comparison
+        type: string
+        default: ''
+      compare-cached-schemas:
+        description: Compare Redis cached schemas with the previous deployment
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      ref:
+        description: Exact integration commit to validate
+        type: string
+        required: true
+      base-ref:
+        description: Base commit for an optional Redis schema comparison
+        type: string
+        default: ''
+      compare-cached-schemas:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  TIMEZONE: Asia/Kolkata
+  INTERNAL_API_KEY: ci-test-key
 
 jobs:
-  test:
+  stateless:
+    name: Stateless API
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      ENABLE_DATABASE: 'false'
+      ENABLE_CACHE: 'false'
+      ENABLE_ID_MAPPING: 'false'
+      ENABLE_LIVE_PUSH: 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.7'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+      - name: Install production dependencies
+        run: uv sync --frozen --no-dev
+      - name: Verify the base installation excludes optional dependencies
+        run: |
+          .venv/bin/python - <<'PY'
+          from importlib.metadata import distributions
 
+          optional = {"sqlalchemy", "alembic", "asyncpg", "firebase-admin", "openai"}
+          installed = {dist.metadata["Name"].lower().replace("_", "-") for dist in distributions()}
+          assert not optional & installed, f"Optional dependencies installed in the base environment: {optional & installed}"
+          from app.main import app
+
+          assert app is not None
+          PY
+      - name: Install test dependencies
+        run: uv sync --frozen
+      - name: Run offline tests without optional dependencies
+        run: uv run --no-sync pytest -m "not live_golden and not live_health"
+
+  optional-features:
+    name: Optional features
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       postgres:
         image: postgres:18
@@ -18,69 +88,71 @@ jobs:
         ports:
           - 5432:5432
         options: --health-cmd pg_isready --health-interval 2s --health-timeout 5s --health-retries 15
-
     env:
+      ENABLE_DATABASE: 'true'
+      ENABLE_CACHE: 'false'
+      ENABLE_ID_MAPPING: 'false'
+      ENABLE_LIVE_PUSH: 'false'
+      API_KEYS: '{}'
       REDIS_HOST: localhost
-      REDIS_PASSWORD: ""
-      TIMEZONE: Asia/Kolkata
+      REDIS_PASSWORD: ''
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/postgres
       TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.7'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+      - name: Install all optional features and test dependencies
+        run: uv sync --frozen --all-extras
+      - name: Run offline tests with optional features
+        run: uv run --no-sync pytest -m "not live_golden and not live_health"
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.14'
-
-    - name: Install uv
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    - name: Install dependencies
-      run: uv sync
-
-    - name: Generate internal API key
-      run: echo "INTERNAL_API_KEY=$(openssl rand -hex 16)" >> $GITHUB_ENV
-
-    - name: Run tests
-      run: uv run pytest -m "not live_golden and not live_health"
+  container:
+    name: Production container
+    uses: ./.github/workflows/build-docker-image.yml
+    with:
+      ref: ${{ inputs.ref || github.sha }}
+    permissions:
+      contents: read
 
   cached-schemas:
+    name: Optional Redis schema comparison
+    if: ${{ inputs.compare-cached-schemas }}
     runs-on: ubuntu-latest
-
+    timeout-minutes: 10
     steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with:
-        python-version: '3.14'
-
-    - name: Install uv
-      run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-    - name: Install dependencies
-      run: uv sync
-
-    # Cached payloads are validated strictly on read, so a schema change of a cached
-    # model needs a manual cache purge at deploy time (AGENTS.md, "Caching"). This
-    # check fails on purpose so the purge is remembered, not silently forgotten.
-    - name: Compare cached-schema digest with the target branch
-      run: |
-        target="origin/${GITHUB_BASE_REF:-master}"
-        git worktree add --detach ../cached-schema-base "$(git merge-base HEAD "$target")"
-        cp scripts/cached_schema_signature.py ../cached-schema-base/scripts/
-        current=$(uv run python -m scripts.cached_schema_signature)
-        base=$(cd ../cached-schema-base && "$GITHUB_WORKSPACE/.venv/bin/python" -m scripts.cached_schema_signature)
-        echo "cached-schema digest (PR):     $current"
-        echo "cached-schema digest (target): $base"
-        if [ "$current" != "$base" ]; then
-          echo "::error title=Cached model schema changed::Purge the app cache on deploy - cached payloads are validated strictly on read, so an old-schema entry raises until it expires. See AGENTS.md, 'Caching'."
-          diff <(uv run python -m scripts.cached_schema_signature --per-model) \
-               <(cd ../cached-schema-base && "$GITHUB_WORKSPACE/.venv/bin/python" -m scripts.cached_schema_signature --per-model) || true
-          exit 1
-        fi
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.14.7'
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: '0.12.5'
+      - run: uv sync --frozen --all-extras
+      - name: Compare cached schemas before a Redis-backed deployment
+        env:
+          BASE_REF: ${{ inputs.base-ref }}
+        run: |
+          set -euo pipefail
+          : "${BASE_REF:?Set base-ref to the previous Redis deployment commit}"
+          base_dir=$(mktemp -d)
+          trap 'rm -rf "$base_dir"' EXIT
+          git archive "$BASE_REF" | tar -x -C "$base_dir"
+          cp scripts/cached_schema_signature.py "$base_dir/scripts/"
+          current=$(.venv/bin/python -m scripts.cached_schema_signature)
+          base=$(cd "$base_dir" && "$GITHUB_WORKSPACE/.venv/bin/python" -m scripts.cached_schema_signature)
+          if [ "$current" != "$base" ]; then
+            echo '::error::Cached model schemas changed. Purge the Redis application cache before deploying this version.'
+            exit 1
+          fi

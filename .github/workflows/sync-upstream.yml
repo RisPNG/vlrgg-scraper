@@ -1,0 +1,120 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: '43 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: ${{ github.repository == 'RisPNG/vlrgg-scraper' && github.ref == 'refs/heads/dbless' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      candidate: ${{ steps.sync.outputs.candidate }}
+      base: ${{ steps.sync.outputs.base }}
+      pull-request: ${{ steps.sync.outputs.pull-request }}
+    steps:
+      - name: Mirror master and prepare the integration pull request
+        id: sync
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const upstream = await github.rest.git.getRef({ owner: 'akhilnarang', repo, ref: 'heads/master' });
+            const mirror = await github.rest.git.getRef({ owner, repo, ref: 'heads/master' });
+            if (mirror.data.object.sha !== upstream.data.object.sha) {
+              await github.rest.git.updateRef({ owner, repo, ref: 'heads/master', sha: upstream.data.object.sha, force: false });
+            }
+
+            const base = await github.rest.git.getRef({ owner, repo, ref: 'heads/dbless' });
+            const comparison = await github.rest.repos.compareCommitsWithBasehead({
+              owner, repo, basehead: `${base.data.object.sha}...${upstream.data.object.sha}`,
+            });
+            if (['behind', 'identical'].includes(comparison.data.status)) {
+              await core.summary.addRaw('master matches upstream; dbless already contains these commits.').write();
+              return;
+            }
+
+            const branch = 'sync/upstream';
+            try {
+              await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+            } catch (error) {
+              if (error.status !== 404) throw error;
+              await github.rest.git.createRef({ owner, repo, ref: `refs/heads/${branch}`, sha: upstream.data.object.sha });
+            }
+
+            try {
+              await github.rest.repos.merge({ owner, repo, base: branch, head: upstream.data.object.sha, commit_message: 'merge upstream master' });
+            } catch (error) {
+              if (error.status !== 409) throw error;
+              core.setFailed('Upstream conflicts with sync/upstream. Resolve the integration branch manually; no branch was rewritten.');
+              return;
+            }
+
+            const open = await github.rest.pulls.list({ owner, repo, state: 'open', base: 'dbless', head: `${owner}:${branch}` });
+            const pull = open.data[0] || (await github.rest.pulls.create({
+              owner, repo, base: 'dbless', head: branch,
+              title: 'merge upstream master into dbless',
+              body: 'Integrates upstream master while retaining the stateless deployment changes. The sync workflow validates the integration commit before advancing dbless. Merge conflicts and failing checks leave the pull request for manual resolution.',
+            })).data;
+            await core.summary.addLink('Integration pull request', pull.html_url).addEOL().write();
+
+            try {
+              await github.rest.repos.merge({ owner, repo, base: branch, head: base.data.object.sha, commit_message: 'merge dbless into upstream integration' });
+            } catch (error) {
+              if (error.status !== 409) throw error;
+              core.setFailed(`Merge conflicts require manual resolution in ${pull.html_url}; dbless was not changed.`);
+              return;
+            }
+
+            const candidate = await github.rest.git.getRef({ owner, repo, ref: `heads/${branch}` });
+            core.setOutput('candidate', candidate.data.object.sha);
+            core.setOutput('base', base.data.object.sha);
+            core.setOutput('pull-request', pull.number);
+
+  checks:
+    needs: prepare
+    if: ${{ needs.prepare.outputs.candidate != '' }}
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: ${{ needs.prepare.outputs.candidate }}
+      base-ref: ${{ needs.prepare.outputs.base }}
+    permissions:
+      contents: read
+
+  promote:
+    needs: [prepare, checks]
+    if: ${{ needs.checks.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - name: Advance dbless to the exact tested commit
+        uses: actions/github-script@v7
+        env:
+          CANDIDATE: ${{ needs.prepare.outputs.candidate }}
+          PULL_REQUEST: ${{ needs.prepare.outputs.pull-request }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const candidate = process.env.CANDIDATE;
+            const pull = await github.rest.pulls.get({ owner, repo, pull_number: Number(process.env.PULL_REQUEST) });
+            if (pull.data.state !== 'open' || pull.data.base.ref !== 'dbless' || pull.data.head.sha !== candidate) {
+              core.setFailed('The integration pull request changed after validation. Run Sync upstream again.');
+              return;
+            }
+            await github.rest.git.updateRef({ owner, repo, ref: 'heads/dbless', sha: candidate, force: false });
+            await core.summary.addRaw(`Advanced dbless to tested commit ${candidate}.`).addEOL().addLink('Integration pull request', pull.data.html_url).write();

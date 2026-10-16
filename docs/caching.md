@@ -2,6 +2,8 @@
 
 The application uses Redis for caching to improve performance and reduce load on vlr.gg servers.
 
+Caching is optional and disabled by default. Without `ENABLE_CACHE`, requests fetch VLR directly and no Redis server is required. Enabling caching does not require PostgreSQL or retain historical database records. The live-push keys and durable fallback described below apply only when database-backed live push is explicitly enabled.
+
 ## Overview
 
 - **Backend**: Redis (in-memory data structure store)

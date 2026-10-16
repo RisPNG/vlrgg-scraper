@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends
-from redis.asyncio import Redis
+from fastapi import APIRouter
 
-from app import schemas, cache
+from app import cache, schemas
 from app.api import deps
 from app.services import events
 
@@ -9,12 +8,17 @@ router = APIRouter()
 
 
 @router.get("/")
-async def list_events(client: Redis = Depends(deps.get_redis_client)) -> list[schemas.Event]:
+async def list_events(client: deps.RedisDep) -> list[schemas.Event]:
     if data := await cache.get("events", client=client):
         return schemas.EventListAdapter.validate_json(data)
     return await events.get_events(client)
 
 
 @router.get("/{id}")
-async def event_by_id(id: str, client: Redis = Depends(deps.get_redis_client)) -> schemas.EventWithDetails:
+async def event_by_id(id: str, client: deps.RedisDep) -> schemas.EventWithDetails:
     return await events.get_event_by_id(id, client)
+
+
+@router.get("/{id}/matches")
+async def event_matches(id: str) -> list[schemas.EventMatch]:
+    return [schemas.EventMatch.model_validate(match) for match in await events.parse_match_data(id)]

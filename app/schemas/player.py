@@ -1,6 +1,8 @@
 from datetime import datetime
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
+
+from app.constants import MatchStatus
 
 
 class Agent(BaseModel):
@@ -34,7 +36,7 @@ class PlayerTeam(BaseModel):
 # A single match from a player's paginated match history (`/player/matches/{id}`).
 class PlayerMatch(BaseModel):
     id: str
-    date: datetime
+    date: datetime | None = Field(default=None, description="Match start in UTC, or null when unannounced")
     event: str
     stage: str
     team: str  # The player's team in that match (first team listed on the card)
@@ -42,6 +44,8 @@ class PlayerMatch(BaseModel):
     score: str  # Raw score string, e.g. "0:2"
     roster_core: str | None = None
     opponent_roster_core: str | None = None
+    status: MatchStatus = MatchStatus.COMPLETED
+    best_of: int | None = Field(default=None, ge=1, description="Scheduled best-of format, when VLR provides it")
 
 
 # Response for `GET /api/v1/player/{id}`
@@ -55,5 +59,6 @@ class Player(BaseModel):
     agents: list[Agent]
     total_winnings: float = 0.0
     current_team: PlayerTeam | None = None
+    current_teams: list[PlayerTeam] = []
     past_teams: list[PlayerTeam] = []
     matches: list[PlayerMatch] = []

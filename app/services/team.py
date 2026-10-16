@@ -1,7 +1,7 @@
 import asyncio
 import http
+from datetime import tzinfo
 
-import dateutil.parser
 from bs4 import BeautifulSoup, Tag
 
 from app import cache, constants, schemas, utils
@@ -13,7 +13,7 @@ from app.exceptions import ScrapingError
 COMPLETED_PAGE_BATCH_SIZE = 5
 
 
-async def get_team_data(id: str, completed_pages: int = 1) -> schemas.Team:
+async def get_team_data(id: str, completed_pages: int = 1, include_completed: bool = True) -> schemas.Team:
     """
     Function get a team's data from VLR and return a parsed version
     :param id: The team's ID
@@ -21,35 +21,32 @@ async def get_team_data(id: str, completed_pages: int = 1) -> schemas.Team:
         Defaults to ``1`` (the first 50 completed matches, preserving the previous behaviour).
         A value ``<= 0`` fetches ALL pages, requesting more until a page returns no matches.
         Upcoming matches are always limited to a single page.
+    :param include_completed: Whether to fetch completed match history.
     :return: The parsed data
     """
 
     # Short-TTL cache (no cron for by-id pages): collapses duplicate live fetches.
-    cache_key = f"team:{id}:{completed_pages}"
+    cache_key = f"team:{id}:{completed_pages}:{include_completed}"
     if cached := await cache.get(cache_key):
         return schemas.Team.model_validate_json(cached)
 
     async with get_http_client() as client:
-        response, upcoming_matches_response, completed_matches_response = await asyncio.gather(
+        requests = [
             client.get(constants.TEAM_URL.format(id)),
             client.get(constants.TEAM_UPCOMING_MATCHES_URL.format(id)),
-            client.get(constants.TEAM_COMPLETED_MATCHES_URL.format(id)),
+        ]
+        if include_completed:
+            requests.append(client.get(constants.TEAM_COMPLETED_MATCHES_URL.format(id)))
+        responses = await asyncio.gather(*requests)
+        for page in responses:
+            if page.status_code != http.HTTPStatus.OK:
+                raise ScrapingError(url=str(page.url), upstream_status=page.status_code)
+        response, upcoming_matches_response = responses[:2]
+        completed_match_list = (
+            parse_completed_matches(responses[2].content, responses[2].extensions.get("vlr_timezone"))
+            if include_completed
+            else []
         )
-        if response.status_code != http.HTTPStatus.OK:
-            raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-
-        if upcoming_matches_response.status_code != http.HTTPStatus.OK:
-            raise ScrapingError(
-                url=str(upcoming_matches_response.url), upstream_status=upcoming_matches_response.status_code
-            )
-
-        if completed_matches_response.status_code != http.HTTPStatus.OK:
-            raise ScrapingError(
-                url=str(completed_matches_response.url), upstream_status=completed_matches_response.status_code
-            )
-
-        # Page 1 has been fetched above; grab any additional pages while the client is open.
-        completed_match_list = parse_completed_matches(completed_matches_response.content)
         if completed_match_list and completed_pages != 1:
             seen: set[str] = {m["id"] for m in completed_match_list}
             # Clamp bounded mode; full-history mode cap is enforced inside the helper.
@@ -102,7 +99,8 @@ async def get_team_data(id: str, completed_pages: int = 1) -> schemas.Team:
 
     roster = [parse_player(player) for player in team_data.find_all("div", class_="team-roster-item")]
     upcoming_match_list = [
-        parse_match(match) for match in upcoming_matches.find_all("a", class_="wf-card fc-flex m-item")
+        parse_match(match, constants.MatchStatus.UPCOMING, upcoming_matches_response.extensions.get("vlr_timezone"))
+        for match in upcoming_matches.find_all("a", class_="wf-card fc-flex m-item")
     ]
     result = schemas.Team.model_validate(
         {
@@ -128,10 +126,24 @@ def completed_matches_url(id: str, page: int) -> str:
     return f"{constants.TEAM_COMPLETED_MATCHES_URL.format(id)}&page={page}"
 
 
-def parse_completed_matches(content: bytes) -> list[dict]:
+def parse_completed_matches(content: bytes, source_timezone: tzinfo | None = None) -> list[dict]:
     """Parse all completed-match cards from a single page of HTML."""
     soup = BeautifulSoup(content, "lxml")
-    return [parse_match(match) for match in soup.find_all("a", class_="wf-card fc-flex m-item")]
+    return [
+        parse_match(match, source_timezone=source_timezone)
+        for match in soup.find_all("a", class_="wf-card fc-flex m-item")
+    ]
+
+
+async def get_team_matches_page(id: str, page: int = 1) -> list[schemas.CompletedMatch]:
+    async with get_http_client() as client:
+        response = await client.get(completed_matches_url(id, page))
+        if response.status_code != http.HTTPStatus.OK:
+            raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
+    return [
+        schemas.CompletedMatch.model_validate(match)
+        for match in parse_completed_matches(response.content, response.extensions.get("vlr_timezone"))
+    ]
 
 
 async def fetch_additional_completed_matches(
@@ -164,7 +176,7 @@ async def fetch_additional_completed_matches(
             for response in responses:
                 if response.status_code != http.HTTPStatus.OK:
                     raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-                page_matches = parse_completed_matches(response.content)
+                page_matches = parse_completed_matches(response.content, response.extensions.get("vlr_timezone"))
                 if not page_matches:
                     stop = True
                     break
@@ -188,7 +200,7 @@ async def fetch_additional_completed_matches(
         for response in responses:
             if response.status_code != http.HTTPStatus.OK:
                 raise ScrapingError(url=str(response.url), upstream_status=response.status_code)
-            page_matches = parse_completed_matches(response.content)
+            page_matches = parse_completed_matches(response.content, response.extensions.get("vlr_timezone"))
             if not page_matches:
                 stop = True
                 break
@@ -226,10 +238,15 @@ def parse_player(player_data: Tag) -> dict:
     return response
 
 
-def parse_match(match_data: Tag) -> dict:
+def parse_match(
+    match_data: Tag,
+    status: constants.MatchStatus = constants.MatchStatus.COMPLETED,
+    source_timezone: tzinfo | None = None,
+) -> dict:
     """
     Function to parse a match's data from VLR
     :param match_data: The HTML data
+    :param status: Whether this card comes from the upcoming or completed listing.
     :return: The parsed data
     """
     event, *stage = [
@@ -241,8 +258,10 @@ def parse_match(match_data: Tag) -> dict:
         "event": event,
         "stage": "".join(stage),
         "id": utils.get_href(match_data["href"]).split("/")[1],
+        "status": status,
     }
     if eta := match_data.find("span", class_="rm-item-score-eta"):
+        response["status"] = constants.MatchStatus.UPCOMING
         response["eta"] = utils.clean_string(eta.get_text())
         response["opponent"] = utils.clean_string(
             eta.find_next("div").find_next("div").find_next("div").get_text().strip().split("\n")[0]
@@ -267,7 +286,11 @@ def parse_match(match_data: Tag) -> dict:
     if len(teams) > 1 and (opp_tag := teams[1].find("span", class_="m-item-team-tag")):
         response["opponent_tag"] = utils.clean_string(opp_tag.get_text()) or None
 
-    response["date"] = utils.fix_datetime_tz(
-        dateutil.parser.parse(match_data.find("div", class_="m-item-date").get_text(), ignoretz=True)
+    timestamp_element = match_data.find(attrs={"data-utc-ts": True})
+    date_element = match_data.find("div", class_="m-item-date")
+    response["date"] = utils.parse_match_datetime(
+        date_element.get_text(" ", strip=True) if date_element is not None else "",
+        str(timestamp_element["data-utc-ts"]) if timestamp_element is not None else None,
+        source_timezone,
     )
     return response

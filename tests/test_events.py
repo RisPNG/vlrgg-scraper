@@ -1,9 +1,14 @@
+from datetime import date
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from bs4 import BeautifulSoup
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
-from app.constants import EVENTS_URL
+from app.api.v1.endpoints.events import router
+from app.constants import EVENT_URL_WITH_ID_MATCHES, EVENTS_URL
 from app.exceptions import ScrapingError
 from app.services import events
 
@@ -75,3 +80,39 @@ async def test_event_details_follow_the_current_public_contract(http_get):
         degraded = await events.get_event_by_id("2863")
 
     assert (degraded.title, degraded.teams, degraded.standings) == (result.title, result.teams, [])
+
+
+@pytest.mark.asyncio
+async def test_event_match_times_use_utc_and_preserve_an_unannounced_date(http_response):
+    soup = BeautifulSoup((FIXTURE_DIR / "matches.html").read_bytes(), "lxml")
+    cards = soup.select("a.match-item")
+    timing = cards[0].select_one(".match-item-time")
+    timing["data-utc-ts"] = "2026-06-25 23:00:00"
+    timing.string = "4:00 AM"
+    cards[1].select_one(".match-item-time").string = "TBD"
+    url = EVENT_URL_WITH_ID_MATCHES.format("2863")
+
+    with patch("httpx2.AsyncClient.get", return_value=http_response(url, str(soup).encode())):
+        result = await events.parse_match_data("2863")
+
+    starts = {match["id"]: (match["date"], match["time"]) for match in result}
+    assert starts["684611"] == (date(2026, 6, 26), "03:00:00")
+    assert starts["684612"] == (date(2026, 6, 7), None)
+
+
+def test_event_match_endpoint_uses_only_the_match_listing(http_response):
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1/events")
+    url = EVENT_URL_WITH_ID_MATCHES.format("2863")
+    response = http_response(url, (FIXTURE_DIR / "matches.html").read_bytes())
+
+    with patch("httpx2.AsyncClient.get", return_value=response) as get, TestClient(app) as client:
+        result = client.get("/api/v1/events/2863/matches")
+
+    assert result.status_code == 200
+    matches = {match["id"]: match for match in result.json()}
+    assert [team["name"] for team in matches["684611"]["teams"]] == ["FULL SENSE", "FUT Esports"]
+    assert matches["684611"]["date"]
+    assert matches["684611"]["time"]
+    assert matches["684611"]["status"] == "upcoming"
+    get.assert_called_once_with(url)
