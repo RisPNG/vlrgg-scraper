@@ -47,6 +47,7 @@ def test_stateless_app_serves_scraped_data_through_the_full_lifecycle(stateless_
     pages = {
         constants.UPCOMING_MATCHES_URL: "matches.html",
         constants.PAST_MATCHES_URL: "matches_results.html",
+        constants.MATCH_URL_WITH_ID.format("12345"): "match_12345.html",
         constants.TEAM_URL.format("624"): "team_624.html",
         constants.TEAM_UPCOMING_MATCHES_URL.format("624"): "team_624_upcoming.html",
         constants.TEAM_COMPLETED_MATCHES_URL.format("624"): "team_624_completed_page1.html",
@@ -92,6 +93,14 @@ def test_stateless_app_serves_scraped_data_through_the_full_lifecycle(stateless_
         assert matches["684611"]["team1"]["name"] == "FULL SENSE"
         assert matches["684612"]["team2"]["name"] == "Global Esports"
         assert matches["684611"]["time"]
+        assert all(match["current_map"] is None for match in matches.values())
+
+        response = client.get("/api/v1/matches/12345", headers=headers)
+        assert response.status_code == 200
+        match = response.json()
+        assert match["teams"][0]["name"] == "Team A"
+        assert match["data"][0]["map"] == "Lotus"
+        assert match["insights"] is None
 
         response = client.get("/api/v1/team/624", headers=headers)
         assert response.status_code == 200
@@ -142,6 +151,16 @@ def test_feature_configuration_requires_its_declared_services(monkeypatch):
     database_configured = Settings(_env_file=None, DATABASE_URL="postgresql+asyncpg://localhost/unused")
     assert not database_configured.ENABLE_DATABASE
     assert not database_configured.needs_redis
+    stateless_insights = Settings(
+        _env_file=None,
+        PREDICTION_SERVICE_URL="https://predictions.example.com",
+        ENABLE_MATCH_SUMMARIES=True,
+        LLM_API_KEY="test-key",
+    )
+    assert not stateless_insights.needs_redis
+    rate_limited = Settings(_env_file=None, LLM_RATE_LIMIT_ENABLED=True)
+    assert rate_limited.needs_redis
+    assert not rate_limited.needs_worker
 
 
 def test_cache_only_lifecycle_schedules_scraping_without_database_or_push(stateless_app, monkeypatch):
@@ -149,6 +168,8 @@ def test_cache_only_lifecycle_schedules_scraping_without_database_or_push(statel
 
     monkeypatch.setattr(settings, "ENABLE_CACHE", True)
     monkeypatch.setattr(settings, "ENABLE_ID_MAPPING", True)
+    monkeypatch.setattr(settings, "RIOT_API_KEY", "test-riot-key")
+    monkeypatch.setattr(settings, "LLM_API_KEY", "test-llm-key")
     monkeypatch.setattr(arq_worker, "task", None)
     run_worker = AsyncMock()
     monkeypatch.setattr(arq_worker, "_run", run_worker)

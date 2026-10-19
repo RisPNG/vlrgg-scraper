@@ -1,8 +1,8 @@
-"""SQLAlchemy models for live-update subscriptions and the team ranking ledger."""
+"""SQLAlchemy models for live-update subscriptions, the team ranking ledger, match insights, and Riot games."""
 
-from datetime import date
+from datetime import date, datetime
 
-from sqlalchemy import Enum, ForeignKey, Index, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -171,6 +171,23 @@ class MapRecord(Base):
     team_b_score: Mapped[int] = mapped_column()
 
 
+class MatchInsightRecord(Base):
+    """Write-once prediction and summaries generated for a match, each with the time it was stored.
+
+    Not tied to ``matches``, which holds completed matches only.
+    """
+
+    __tablename__ = "match_insights"
+
+    match_id: Mapped[str] = mapped_column(String(10), primary_key=True)
+    prediction: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    prediction_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pre_summary: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    pre_summary_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    post_summary: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
+    post_summary_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class RankingResult(Base):
     """One Elo-moving result: a series or a played map, with the ratings before it."""
 
@@ -228,3 +245,21 @@ class TeamCircuit(Base):
     )
     matches: Mapped[int] = mapped_column()
     last_played_on: Mapped[date] = mapped_column()
+
+
+class RiotMatch(Base):
+    """A game from Riot's esports match API linked to the VLR map it was, stored whole.
+
+    Riot lists a game for about 12 hours, so its data is kept here; one Riot game is one VLR map.
+    """
+
+    __tablename__ = "riot_matches"
+    __table_args__ = (UniqueConstraint("vlr_match_id", "map_number"),)
+
+    riot_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    vlr_match_id: Mapped[str] = mapped_column(String(10))
+    map_number: Mapped[int] = mapped_column()
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    linked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    data: Mapped[dict] = mapped_column(JSONB)
+    link: Mapped[dict] = mapped_column(JSONB)

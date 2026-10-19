@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator:
                     port=settings.REDIS_PORT,
                 )
                 resources.push_async_callback(connections.redis_pool.aclose)
-                if settings.ENABLE_CACHE or settings.ENABLE_LIVE_PUSH:
+                if settings.needs_worker:
                     from app.cron import arq_worker
 
                     logger.info("Starting arq worker")
@@ -61,6 +61,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator:
                             password=settings.REDIS_PASSWORD,
                         ),
                     )
+            if settings.ENABLE_DATABASE:
+                from app.services import insights
+
+                resources.push_async_callback(insights.stop_generations)
             yield
     finally:
         connections.redis_pool = None

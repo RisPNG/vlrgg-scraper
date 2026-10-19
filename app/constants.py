@@ -64,6 +64,13 @@ VIDEO_FALLBACK_TTL = 300  # renewed each cron run while the gap lasts
 VIDEO_FALLBACK_ALERT_SECONDS = 1500  # longer than a break between maps plus a 0-0 opening
 VIDEO_FALLBACK_ALERTED_KEY = "valesports:tracker:fallback_alerted:{}"
 VIDEO_FALLBACK_ALERT_INTERVAL = 3600
+VIDEO_CODES_KEY = "valesports:tracker:codes"  # team codes the tracker last asked context for, resolved or not
+VIDEO_CODES_TTL = 180  # the tracker asks every 60 s; three missed requests mean it stopped asking
+VIDEO_UNRESOLVED_KEY = "valesports:tracker:unresolved"  # the codes no VLR match fits, and since when
+VIDEO_UNRESOLVED_TTL = 300  # renewed by every failed request in a row
+VIDEO_UNRESOLVED_ALERT_SECONDS = 1800  # above the 19-minute longest observed wait for VLR to list a live match
+VIDEO_UNRESOLVED_ALERTED_KEY = "valesports:tracker:unresolved_alerted"
+VIDEO_UNRESOLVED_ALERT_INTERVAL = 3600
 PUSH_REFRESH_KEY = "valesports:push:refresh:{}"  # per-match cooldown for unchanged FCM refreshes
 PUSH_REFRESH_SECONDS = 60  # seconds between unchanged-state follower refreshes
 PUSH_DETAILS_KEY = "valesports:vlr:details"  # each tracked match's last fetched details, for video pushes
@@ -261,6 +268,66 @@ RANKING_WINDOW_DAYS = 180  # series older than this do not count towards RANKING
 MATCH_SCOPE_MAP_INDEX = -1
 # Timezone matches are dated in, matching the source's local match day.
 MATCH_TIMEZONE = "America/New_York"
+
+
+PREDICTION_TIMEOUT_SECONDS = 2.0  # a slower prediction service answer falls back to Elo
+RIOT_MATCH_API_URL = "https://esports.api.riotgames.com/val/match/v1/"
+# From Riot's val-content-v1.
+RIOT_MAP_NAMES = {
+    "Ascent": "Ascent",
+    "Bonsai": "Split",
+    "Canyon": "Fracture",
+    "Duality": "Bind",
+    "Foxtrot": "Breeze",
+    "Infinity": "Abyss",
+    "Jam": "Lotus",
+    "Juliett": "Sunset",
+    "Pitt": "Pearl",
+    "Plummet": "Summit",
+    "Port": "Icebox",
+    "Rook": "Corrode",
+    "Triad": "Haven",
+}
+RIOT_LINK_LOOKBACK = timedelta(hours=8)
+RIOT_LINK_LEAD = timedelta(minutes=30)
+RIOT_LINK_MIN_CONFIDENCE = 0.95
+RIOT_LINK_MODEL_TIMEOUT = 30.0
+# arq stops a job after 300 s; the cron stops checking games before that and stores what it found.
+RIOT_RUN_BUDGET = timedelta(seconds=240)
+# Games turned down or contested are not asked about again while Riot still lists them.
+RIOT_REJECTED_KEY = "valesports:riot:rejected:{}"
+RIOT_REJECTED_TTL = timedelta(hours=13)
+
+
+class InsightKind(StrEnum):
+    """A write-once artifact generated for one match."""
+
+    PREDICTION = "prediction"
+    PRE_SUMMARY = "pre_summary"
+    POST_SUMMARY = "post_summary"
+
+
+# The prediction and pre-match summary are generated only within this lead before the scheduled start.
+INSIGHTS_PRE_MATCH_WINDOW = timedelta(hours=24)
+# The post-match summary is generated only for a match that started within this long.
+INSIGHTS_POST_MATCH_WINDOW = timedelta(days=7)
+# One generation per match at a time. A generation is cut off after its provider calls' own timeouts plus
+# this overhead for its reads and writes, and its claim expires this margin later, so no other starts meanwhile.
+INSIGHTS_CLAIM_KEY = "vlrgg:insights:claim:{}"
+INSIGHTS_GENERATION_OVERHEAD_SECONDS = 10.0
+INSIGHTS_CLAIM_MARGIN_SECONDS = 10.0
+INSIGHTS_CLEANUP_SECONDS = 2.0  # bound on the Redis calls that cool down or release after a generation
+# Shutdown waits this long for running generations before cancelling them.
+INSIGHTS_SHUTDOWN_SECONDS = 10.0
+# A request stops waiting on generation this long before its deadline, to read what was stored meanwhile.
+INSIGHTS_READ_RESERVE_SECONDS = 1.0
+# A failed attempt at one artifact is not retried for this long, or a summary
+# skipped for lack of useful data for the longer time.
+INSIGHTS_COOLDOWN_KEY = "vlrgg:insights:cooldown:{}:{}"
+INSIGHTS_COOLDOWN_SECONDS = 300
+INSIGHTS_NO_DATA_COOLDOWN_SECONDS = 3600
+INSIGHTS_HISTORY_DAYS = 180  # ledger history the pre-match summary draws on
+SUMMARY_MAX_CHARS = 1200  # a longer model answer is rejected, never truncated
 
 
 class NewsVideoProvider(StrEnum):

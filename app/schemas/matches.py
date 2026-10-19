@@ -20,6 +20,7 @@ from app.constants import (
     VideoPauseKind,
     VideoStatus,
 )
+from app.schemas.predictions import WinProbabilities
 
 
 class Team(BaseModel):
@@ -135,7 +136,7 @@ class PushCurrentMap(BaseModel):
     number: int | None = None
 
 
-# Response for `GET /api/v1/matches/{match_id}`
+# Details for `GET /api/v1/matches/{match_id}`, as cached under `match:{id}`
 class MatchWithDetails(BaseModel):
     id: str = ""
     teams: list[TeamWithImage]
@@ -168,13 +169,40 @@ class MatchWithDetails(BaseModel):
         )
 
 
+class InsightPrediction(WinProbabilities):
+    """Model win probabilities stored for a match, with the teams they describe."""
+
+    team_a_id: str
+    team_b_id: str
+    generated_at: datetime
+
+
+class MatchSummary(BaseModel):
+    """Generated plain-text summary of a match."""
+
+    text: str
+    generated_at: datetime
+
+
+class MatchInsights(BaseModel):
+    """Stored prediction and summaries for a match; each appears once generated and never changes."""
+
+    prediction: InsightPrediction | None = None
+    pre_match_summary: MatchSummary | None = None
+    post_match_summary: MatchSummary | None = None
+
+
+# What `GET /api/v1/matches/{match_id}` returns: the cached details plus insights read per request.
+class MatchDetailsResponse(MatchWithDetails):
+    insights: MatchInsights | None = None
+
+
 class MatchTeam(BaseModel):
     name: str
     id: str | None = None
     score: int | None = None
 
 
-# Response for `GET /api/v1/matches`
 class Match(BaseModel):
     id: str
     team1: MatchTeam
@@ -190,6 +218,16 @@ class Match(BaseModel):
     @property
     def status_label(self) -> str:
         return i18n.label("match_status", self.status)
+
+
+# Response for `GET /api/v1/matches`
+class ListedMatch(Match):
+    """A listed match with the broadcast's current map; the cached list stores plain ``Match`` entries."""
+
+    current_map: PushCurrentMap | None = Field(
+        default=None,
+        description="Broadcast tracker's last known map, scores in team1, team2 order; only for its live match",
+    )
 
 
 class PushTeam(BaseModel):

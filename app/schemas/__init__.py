@@ -2,7 +2,7 @@ from pydantic import TypeAdapter
 
 from .agent import AskRequest, AskResponse
 from .events import Event, EventWithDetails, Match as EventMatch
-from .matches import Match, MatchTeam, MatchWithDetails, Veto
+from .matches import ListedMatch, Match, MatchDetailsResponse, MatchTeam, MatchWithDetails, Veto
 from .news import NewsItem, NewsArticle
 from .player import Player, PlayerMatch
 from .rankings import Ranking, TeamRanking

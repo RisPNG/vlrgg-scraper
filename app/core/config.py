@@ -59,6 +59,9 @@ class Settings(BaseSettings):
     # Optional standalone prediction service; predict falls back to Elo when unset or unreachable.
     PREDICTION_SERVICE_URL: str | None = None
 
+    # Riot esports API key; with LLM_API_KEY, a cron links each Riot tournament game to its VLR map and stores it.
+    RIOT_API_KEY: str | None = None
+
     LLM_API_KEY: str | None = None
     LLM_BASE_URL: str | None = None
     LLM_MODEL: str = "gpt-5.4"
@@ -69,6 +72,12 @@ class Settings(BaseSettings):
     LLM_RATE_LIMIT_ENABLED: bool = False
     LLM_RATE_LIMIT: int = 5
     LLM_RATE_LIMIT_WINDOW: int = 60
+    # Match insights: LLM-written pre- and post-match summaries (also need LLM_API_KEY), the time a
+    # match-details request waits for generation (the app times out at 20 s), and each summary call's
+    # own limit, which a generation that outlives the request still honours.
+    ENABLE_MATCH_SUMMARIES: bool = False
+    INSIGHTS_REQUEST_BUDGET_SECONDS: float = 12.0
+    SUMMARY_TIMEOUT_SECONDS: float = 45.0
 
     model_config = SettingsConfigDict(env_file=".env")
 
@@ -115,9 +124,23 @@ class Settings(BaseSettings):
         return self
 
     @property
+    def needs_worker(self) -> bool:
+        """Return whether an enabled feature needs the arq worker."""
+        return self.ENABLE_CACHE or self.ENABLE_LIVE_PUSH
+
+    @property
     def needs_redis(self) -> bool:
         """Return whether an enabled feature needs Redis."""
-        return self.ENABLE_CACHE or self.ENABLE_LIVE_PUSH or self.LLM_RATE_LIMIT_ENABLED
+        return (
+            self.needs_worker
+            or self.LLM_RATE_LIMIT_ENABLED
+            or (self.ENABLE_DATABASE and (bool(self.PREDICTION_SERVICE_URL) or self.match_summaries_enabled))
+        )
+
+    @property
+    def match_summaries_enabled(self) -> bool:
+        """Return whether match insights include LLM-written summaries."""
+        return self.ENABLE_MATCH_SUMMARIES and bool(self.LLM_API_KEY)
 
 
 settings = Settings()
