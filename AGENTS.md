@@ -33,7 +33,6 @@
   `Match`, `MatchWithDetails`, `Event`, `NewsItem`, `Ranking`, `Standings`, `Team`,
   `Player`, or `VideoScore`, the application cache must be purged as part of the deploy:
   an old-schema entry otherwise raises and 5xxs until it expires or its cron rewrites it.
-  CI fails on such a change as a reminder.
 - Purge only this app's keys, never `FLUSHALL`/`FLUSHDB` — the arq queue shares
   this Redis. Pass the same `-h`/`-a` options to both `redis-cli` calls if Redis is
   not local:
@@ -80,8 +79,7 @@
   model) updates the affected `tests/golden/` snapshots in the same PR. Run
   `uv run pytest -m live_golden tests/golden`, regenerate each failing case on its own
   (`--force-regen` with that case's node ID, never the whole set), and check every
-  changed value against the live VLR page. CI runs these checks only nightly, so a
-  missed snapshot fails every night after the merge.
+  changed value against the live VLR page.
 - Request changes for excessive, redundant, or non-contract tests. When pruning,
   preserve distinct behavior rather than optimizing test counts or coverage scores.
 

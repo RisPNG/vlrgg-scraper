@@ -48,7 +48,7 @@ uv run pytest -m live_golden tests/golden
 uv run pytest tests/test_news.py
 ```
 
-CI runs both the base installation and the all-extras suite against a disposable PostgreSQL service. The application lifecycle tests verify the production app serves real HTML fixtures and closes its HTTP client without any database or Redis service. Calendar fixtures also verify canonical VLR timestamps, explicit offsets, and unknown start times.
+Central maintenance runs both the base installation and the all-extras suite against a disposable PostgreSQL service. The application lifecycle tests verify the production app serves real HTML fixtures and closes its HTTP client without any database or Redis service. Calendar fixtures also verify canonical VLR timestamps, explicit offsets, and unknown start times.
 
 Run Ruff before committing:
 
